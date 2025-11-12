@@ -68,7 +68,6 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
-mock_use_standalone_module = true
 
 addopts = [
     "-ra",
@@ -106,7 +105,7 @@ exclude_lines = [
 ]
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py313"
 line-length = 88
 select = [
     "E",   # pycodestyle errors

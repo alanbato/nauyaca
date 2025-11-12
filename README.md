@@ -327,11 +327,11 @@ async def main():
         certfile='cert.pem',
         keyfile='key.pem'
     )
-    
+
     # Add handler
     handler = StaticFileHandler(root='./capsule')
     server.add_handler('/*', handler)
-    
+
     # Start server
     await server.start()
     await server.serve_forever()
@@ -346,7 +346,7 @@ async def main():
     async with GeminiClient() as client:
         # Simple fetch
         response = await client.fetch('gemini://example.com/')
-        
+
         # Handle different status codes
         if response.status == 20:
             print(response.body)
