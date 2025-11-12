@@ -4,12 +4,15 @@ This module provides a command-line interface for the Nauyaca Gemini client.
 """
 
 import asyncio
+from pathlib import Path
 
 import typer
 
 from .client.session import GeminiClient
-from .protocol.constants import MAX_REDIRECTS
+from .protocol.constants import DEFAULT_PORT, MAX_REDIRECTS
 from .protocol.status import interpret_status
+from .server.config import ServerConfig
+from .server.server import start_server
 
 app = typer.Typer(
     name="nauyaca",
@@ -134,9 +137,98 @@ def fetch(
 
 
 @app.command()
+def serve(
+    root: Path = typer.Argument(
+        ...,
+        help="Document root directory to serve files from",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+    ),
+    host: str = typer.Option(
+        "localhost",
+        "--host",
+        "-h",
+        help="Server host address",
+    ),
+    port: int = typer.Option(
+        DEFAULT_PORT,
+        "--port",
+        "-p",
+        help="Server port",
+    ),
+    cert: Path | None = typer.Option(
+        None,
+        "--cert",
+        help="Path to TLS certificate file (optional, generates self-signed if omitted)",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        resolve_path=True,
+    ),
+    key: Path | None = typer.Option(
+        None,
+        "--key",
+        help="Path to TLS private key file (optional)",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        resolve_path=True,
+    ),
+):
+    """Start a Gemini server to serve files from a directory.
+
+    Examples:
+
+        # Serve current directory on default port (1965)
+        $ python -m nauyaca serve .
+
+        # Serve specific directory with custom port
+        $ python -m nauyaca serve /var/gemini/capsule -p 1965
+
+        # Serve with custom host and port
+        $ python -m nauyaca serve ./capsule --host 0.0.0.0 --port 1965
+
+        # Serve with custom TLS certificate
+        $ python -m nauyaca serve ./capsule --cert cert.pem --key key.pem
+    """
+
+    async def _serve():
+        try:
+            # Create server configuration
+            config = ServerConfig(
+                host=host,
+                port=port,
+                document_root=root,
+                certfile=cert,
+                keyfile=key,
+            )
+
+            # Start server
+            await start_server(config)
+
+        except ValueError as e:
+            typer.echo(f"Configuration error: {e}", err=True)
+            raise typer.Exit(code=1) from e
+        except OSError as e:
+            typer.echo(f"Server error: {e}", err=True)
+            raise typer.Exit(code=1) from e
+        except KeyboardInterrupt:
+            typer.echo("\n[Server] Shutting down...")
+            raise typer.Exit(code=0)
+        except Exception as e:
+            typer.echo(f"Unexpected error: {e}", err=True)
+            raise typer.Exit(code=1) from e
+
+    # Run the async function
+    asyncio.run(_serve())
+
+
+@app.command()
 def version():
     """Show version information."""
-    typer.echo("Nauyaca Gemini Protocol Client")
+    typer.echo("Nauyaca Gemini Protocol Client & Server")
     typer.echo("Version: 0.1.0 (MVP)")
     typer.echo("Protocol: Gemini (gemini://)")
 
