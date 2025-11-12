@@ -4,11 +4,14 @@ This module provides functions for starting and managing Gemini servers.
 """
 
 import asyncio
+import ssl
+import tempfile
 from pathlib import Path
 
 from ..content.templates import error_404
 from ..protocol.response import GeminiResponse
 from ..protocol.status import StatusCode
+from ..security.certificates import generate_self_signed_cert
 from ..security.tls import create_server_context
 from ..utils.logging import configure_logging, get_logger
 from .config import ServerConfig
@@ -125,41 +128,25 @@ def _create_self_signed_context():
     Returns:
         An SSL context with a self-signed certificate.
     """
-    import ssl
-    import subprocess
-    import tempfile
+    # Generate self-signed certificate using cryptography library
+    try:
+        cert_pem, key_pem = generate_self_signed_cert(
+            hostname="localhost",
+            key_size=2048,
+            valid_days=365,
+        )
+    except Exception as e:
+        raise RuntimeError(f"Failed to generate self-signed certificate: {e}") from e
 
-    # Create temporary certificate and key
+    # Write to temporary files
     with (
-        tempfile.NamedTemporaryFile(suffix=".pem", delete=False) as certfile,
-        tempfile.NamedTemporaryFile(suffix=".key", delete=False) as keyfile,
+        tempfile.NamedTemporaryFile(suffix=".pem", delete=False, mode="wb") as certfile,
+        tempfile.NamedTemporaryFile(suffix=".key", delete=False, mode="wb") as keyfile,
     ):
-        # Generate self-signed certificate
-        try:
-            subprocess.run(
-                [
-                    "openssl",
-                    "req",
-                    "-x509",
-                    "-newkey",
-                    "rsa:2048",
-                    "-keyout",
-                    keyfile.name,
-                    "-out",
-                    certfile.name,
-                    "-days",
-                    "365",
-                    "-nodes",
-                    "-subj",
-                    "/CN=localhost",
-                ],
-                check=True,
-                capture_output=True,
-            )
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(
-                f"Failed to generate self-signed certificate: {e.stderr.decode()}"
-            ) from e
+        certfile.write(cert_pem)
+        keyfile.write(key_pem)
+        certfile.flush()
+        keyfile.flush()
 
         print("[Server] WARNING: Using self-signed certificate (testing only!)")
         print(f"[Server] Certificate: {certfile.name}")
