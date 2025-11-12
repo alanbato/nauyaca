@@ -7,12 +7,19 @@ import asyncio
 from pathlib import Path
 
 import typer
+from rich.console import Console
+from rich.table import Table
 
 from .client.session import GeminiClient
 from .protocol.constants import DEFAULT_PORT, MAX_REDIRECTS
+from .protocol.response import GeminiResponse
 from .protocol.status import interpret_status
 from .server.config import ServerConfig
 from .server.server import start_server
+
+# Create console instances
+console = Console()
+error_console = Console(stderr=True, style="bold red")
 
 app = typer.Typer(
     name="nauyaca",
@@ -22,38 +29,57 @@ app = typer.Typer(
 )
 
 
-def _format_response(response, verbose: bool = False):
-    """Format a Gemini response for display.
+def _format_response(response: GeminiResponse, verbose: bool = False) -> None:
+    """Format and print a Gemini response for display.
 
     Args:
         response: GeminiResponse object to format.
         verbose: Whether to show verbose output with headers.
-
-    Returns:
-        Formatted string representation of the response.
     """
-    output = []
-
     if verbose:
-        # Show full response details
-        output.append(
-            f"Status: {response.status} ({interpret_status(response.status)})"
+        # Show full response details in a table
+        table = Table(show_header=False, box=None, padding=(0, 1))
+        table.add_column("Key", style="bold cyan", no_wrap=True)
+        table.add_column("Value", style="white")
+
+        # Determine status color based on status code
+        status_str = str(response.status)
+        if status_str.startswith("2"):
+            status_style = "bold green"
+        elif status_str.startswith("3"):
+            status_style = "bold yellow"
+        elif status_str.startswith("4"):
+            status_style = "bold orange1"
+        else:
+            status_style = "bold red"
+
+        status_text = interpret_status(response.status)
+        table.add_row(
+            "Status",
+            f"[{status_style}]{response.status}[/] ({status_text})",
         )
-        output.append(f"Meta: {response.meta}")
+        table.add_row("Meta", response.meta)
+
         if response.url:
-            output.append(f"URL: {response.url}")
+            table.add_row("URL", response.url)
         if response.mime_type:
-            output.append(f"MIME Type: {response.mime_type}")
-        output.append("")  # Blank line before body
+            table.add_row("MIME Type", response.mime_type)
+
+        console.print(table)
+        console.print()  # Blank line before body
 
     if response.body:
-        output.append(response.body)
+        console.print(response.body)
     elif not response.is_success():
         # For non-success responses, show the meta as the message
         if not verbose:
-            output.append(f"[{response.status}] {response.meta}")
-
-    return "\n".join(output)
+            status_str = str(response.status)
+            if status_str.startswith("3"):
+                console.print(f"[bold yellow][{response.status}][/] {response.meta}")
+            elif status_str.startswith("4"):
+                console.print(f"[bold orange1][{response.status}][/] {response.meta}")
+            else:
+                console.print(f"[bold red][{response.status}][/] {response.meta}")
 
 
 @app.command()
@@ -82,7 +108,7 @@ def fetch(
         "-v",
         help="Show verbose output with response headers",
     ),
-):
+) -> None:
     """Fetch a Gemini resource and display it.
 
     Examples:
@@ -100,7 +126,7 @@ def fetch(
         $ nauyaca fetch -t 10 gemini://example.com/
     """
 
-    async def _fetch():
+    async def _fetch() -> None:
         try:
             async with GeminiClient(
                 timeout=timeout,
@@ -113,24 +139,23 @@ def fetch(
                 )
 
                 # Format and display response
-                output = _format_response(response, verbose=verbose)
-                typer.echo(output)
+                _format_response(response, verbose=verbose)
 
                 # Exit with non-zero status for errors
                 if response.status >= 40:
                     raise typer.Exit(code=1)
 
         except ValueError as e:
-            typer.echo(f"Error: {e}", err=True)
+            error_console.print(f"Error: {e}")
             raise typer.Exit(code=1) from e
         except TimeoutError as e:
-            typer.echo(f"Timeout: {e}", err=True)
+            error_console.print(f"Timeout: {e}")
             raise typer.Exit(code=1) from e
         except ConnectionError as e:
-            typer.echo(f"Connection error: {e}", err=True)
+            error_console.print(f"Connection error: {e}")
             raise typer.Exit(code=1) from e
         except Exception as e:
-            typer.echo(f"Unexpected error: {e}", err=True)
+            error_console.print(f"Unexpected error: {e}")
             raise typer.Exit(code=1) from e
 
     # Run the async function
@@ -203,7 +228,7 @@ def serve(
         "--json-logs",
         help="Output logs in JSON format (useful for log aggregation)",
     ),
-):
+) -> None:
     """Start a Gemini server to serve files from a directory.
 
     Examples:
@@ -224,7 +249,7 @@ def serve(
         $ nauyaca serve ./capsule --cert cert.pem --key key.pem
     """
 
-    async def _serve():
+    async def _serve() -> None:
         try:
             # Create server configuration
             config = ServerConfig(
@@ -245,16 +270,16 @@ def serve(
             )
 
         except ValueError as e:
-            typer.echo(f"Configuration error: {e}", err=True)
+            error_console.print(f"Configuration error: {e}")
             raise typer.Exit(code=1) from e
         except OSError as e:
-            typer.echo(f"Server error: {e}", err=True)
+            error_console.print(f"Server error: {e}")
             raise typer.Exit(code=1) from e
         except KeyboardInterrupt:
-            typer.echo("\n[Server] Shutting down...")
+            console.print("\n[bold blue][Server][/] Shutting down...")
             raise typer.Exit(code=0) from None
         except Exception as e:
-            typer.echo(f"Unexpected error: {e}", err=True)
+            error_console.print(f"Unexpected error: {e}")
             raise typer.Exit(code=1) from e
 
     # Run the async function
@@ -262,14 +287,14 @@ def serve(
 
 
 @app.command()
-def version():
+def version() -> None:
     """Show version information."""
-    typer.echo("Nauyaca Gemini Protocol Client & Server")
-    typer.echo("Version: 0.1.0 (MVP)")
-    typer.echo("Protocol: Gemini (gemini://)")
+    console.print("[bold cyan]Nauyaca[/] Gemini Protocol Client & Server")
+    console.print("[bold]Version:[/] 0.1.0 (MVP)")
+    console.print("[bold]Protocol:[/] Gemini (gemini://)")
 
 
-def main():
+def main() -> None:
     """Main entry point for the CLI."""
     app()
 

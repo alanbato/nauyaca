@@ -24,6 +24,7 @@ classifiers = [
 
 dependencies = [
     "cryptography>=46.0.3",
+    "rich>=14.2.0",
     "structlog>=25.5.0",
     "typer>=0.20.0",
 ]
