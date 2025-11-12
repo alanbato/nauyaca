@@ -96,6 +96,13 @@ ENV/
 env.bak/
 venv.bak/
 
+
+# UV
+uv.lock
+
+# ruff
+.ruff_cache
+
 # Spyder project settings
 .spyderproject
 .spyproject

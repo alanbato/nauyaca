@@ -184,3 +184,134 @@ class TestGeminiClientProtocol:
         # Verify error was propagated
         with pytest.raises(ConnectionError, match="Network error"):
             await future
+
+    async def test_response_body_size_exceeded(self):
+        """Test handling response body that exceeds maximum size."""
+        from nauyaca.protocol.constants import MAX_RESPONSE_BODY_SIZE
+
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        protocol = GeminiClientProtocol("gemini://example.com/", future)
+
+        # Mock transport
+        transport = Mock()
+        protocol.connection_made(transport)
+
+        # Send success header
+        protocol.data_received(b"20 text/gemini\r\n")
+
+        # Send body that exceeds max size
+        # We need to send enough data to exceed MAX_RESPONSE_BODY_SIZE
+        large_chunk = b"x" * (MAX_RESPONSE_BODY_SIZE + 1)
+        protocol.data_received(large_chunk)
+
+        # Verify transport was closed
+        transport.close.assert_called()
+
+        # Verify error was set
+        protocol.connection_lost(None)
+        with pytest.raises(Exception, match="Response body exceeds maximum size"):
+            await future
+
+    async def test_empty_header_line(self):
+        """Test handling completely empty header line."""
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        protocol = GeminiClientProtocol("gemini://example.com/", future)
+
+        # Mock transport
+        transport = Mock()
+        protocol.connection_made(transport)
+
+        # Send empty header (just CRLF)
+        protocol.data_received(b"\r\n")
+
+        # Verify connection was closed
+        transport.close.assert_called()
+
+        # Verify error was set
+        protocol.connection_lost(None)
+        with pytest.raises(ValueError, match="Invalid status code"):
+            await future
+
+    async def test_status_code_out_of_range_low(self):
+        """Test handling status code below valid range."""
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        protocol = GeminiClientProtocol("gemini://example.com/", future)
+
+        # Mock transport
+        transport = Mock()
+        protocol.connection_made(transport)
+
+        # Send status code below 10
+        protocol.data_received(b"05 text/gemini\r\n")
+
+        # Verify connection was closed
+        transport.close.assert_called()
+
+        # Verify error was set
+        protocol.connection_lost(None)
+        with pytest.raises(ValueError, match="Status code out of range"):
+            await future
+
+    async def test_status_code_out_of_range_high(self):
+        """Test handling status code above valid range."""
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        protocol = GeminiClientProtocol("gemini://example.com/", future)
+
+        # Mock transport
+        transport = Mock()
+        protocol.connection_made(transport)
+
+        # Send status code above 69
+        protocol.data_received(b"70 text/gemini\r\n")
+
+        # Verify connection was closed
+        transport.close.assert_called()
+
+        # Verify error was set
+        protocol.connection_lost(None)
+        with pytest.raises(ValueError, match="Status code out of range"):
+            await future
+
+    async def test_unicode_decode_error_in_body(self):
+        """Test handling invalid UTF-8 in response body."""
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        protocol = GeminiClientProtocol("gemini://example.com/", future)
+
+        # Mock transport
+        transport = Mock()
+        protocol.connection_made(transport)
+
+        # Send success header
+        protocol.data_received(b"20 text/gemini\r\n")
+
+        # Send invalid UTF-8 in body
+        # 0xFF is not valid UTF-8
+        protocol.data_received(b"Hello \xff World")
+
+        # Close connection
+        protocol.connection_lost(None)
+
+        # Verify UnicodeDecodeError was raised
+        with pytest.raises(UnicodeDecodeError):
+            await future
+
+    async def test_eof_received(self):
+        """Test eof_received returns False to close connection."""
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        protocol = GeminiClientProtocol("gemini://example.com/", future)
+
+        # Mock transport
+        transport = Mock()
+        protocol.connection_made(transport)
+
+        # Call eof_received
+        result = protocol.eof_received()
+
+        # Should return False to indicate full connection close
+        assert result is False

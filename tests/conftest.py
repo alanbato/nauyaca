@@ -1,8 +1,8 @@
 """Pytest configuration and shared fixtures for nauyaca tests."""
 
 import asyncio
+import socket
 import ssl
-from collections.abc import AsyncGenerator
 
 import pytest
 
@@ -19,8 +19,7 @@ def client_ssl_context() -> ssl.SSLContext:
 
 
 @pytest.fixture
-async def event_loop():
-    """Create an event loop for async tests."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+def unused_tcp_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
