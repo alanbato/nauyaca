@@ -6,11 +6,14 @@ Gemini requests, built on top of the low-level GeminiClientProtocol.
 
 import asyncio
 import ssl
+from pathlib import Path
 
 from ..protocol.constants import MAX_REDIRECTS
 from ..protocol.response import GeminiResponse
 from ..protocol.status import is_redirect
+from ..security.certificates import get_certificate_fingerprint
 from ..security.tls import create_client_context
+from ..security.tofu import CertificateChangedError, TOFUDatabase
 from ..utils.url import parse_url, validate_url
 from .protocol import GeminiClientProtocol
 
@@ -44,6 +47,8 @@ class GeminiClient:
         max_redirects: int = MAX_REDIRECTS,
         ssl_context: ssl.SSLContext | None = None,
         verify_ssl: bool = False,
+        trust_on_first_use: bool = True,
+        tofu_db_path: Path | None = None,
     ):
         """Initialize the Gemini client.
 
@@ -54,13 +59,26 @@ class GeminiClient:
                 created based on verify_ssl setting.
             verify_ssl: Whether to verify SSL certificates. Default is False
                 (testing mode). Set to True for production with TOFU.
+            trust_on_first_use: Whether to use TOFU certificate validation.
+                Default is True. Only used if verify_ssl is True.
+            tofu_db_path: Path to TOFU database. If None, uses default location
+                (~/.nauyaca/tofu.db).
         """
         self.timeout = timeout
         self.max_redirects = max_redirects
+        self.verify_ssl = verify_ssl
+        self.trust_on_first_use = trust_on_first_use
+
+        # Initialize TOFU database if needed
+        if self.verify_ssl and self.trust_on_first_use:
+            self.tofu_db: TOFUDatabase | None = TOFUDatabase(tofu_db_path)
+        else:
+            self.tofu_db = None
 
         # Create SSL context if not provided
         if ssl_context is None:
             if verify_ssl:
+                # For TOFU, we still need TLS but we'll do custom validation
                 self.ssl_context = create_client_context(
                     verify_mode=ssl.CERT_REQUIRED,
                     check_hostname=True,
@@ -74,14 +92,20 @@ class GeminiClient:
         else:
             self.ssl_context = ssl_context
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "GeminiClient":
         """Async context manager entry."""
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
         """Async context manager exit."""
-        # No cleanup needed for now
-        pass
+        # Close TOFU database if open
+        if self.tofu_db:
+            self.tofu_db.close()
 
     async def fetch(
         self,
@@ -131,6 +155,7 @@ class GeminiClient:
         Raises:
             asyncio.TimeoutError: If the request times out.
             ConnectionError: If the connection fails.
+            CertificateChangedError: If certificate has changed (TOFU).
         """
         # Parse URL to get host and port
         parsed = parse_url(url)
@@ -141,11 +166,14 @@ class GeminiClient:
         # Create future for response
         response_future: asyncio.Future = loop.create_future()
 
+        # Create protocol instance
+        protocol = GeminiClientProtocol(url, response_future)
+
         # Create connection using Protocol/Transport pattern
         try:
             transport, protocol = await asyncio.wait_for(
                 loop.create_connection(
-                    lambda: GeminiClientProtocol(url, response_future),
+                    lambda: protocol,
                     host=parsed.hostname,
                     port=parsed.port,
                     ssl=self.ssl_context,
@@ -159,8 +187,37 @@ class GeminiClient:
             raise ConnectionError(f"Connection failed: {e}") from e
 
         try:
+            # If TOFU is enabled, verify the certificate
+            if self.tofu_db:
+                cert = protocol.get_peer_certificate()
+                if cert:
+                    is_valid, message = self.tofu_db.verify(
+                        parsed.hostname, parsed.port, cert
+                    )
+
+                    if not is_valid and message == "changed":
+                        # Certificate changed - get old info and raise error
+                        old_info = self.tofu_db.get_host_info(
+                            parsed.hostname, parsed.port
+                        )
+                        old_fingerprint = (
+                            old_info["fingerprint"] if old_info else "unknown"
+                        )
+                        new_fingerprint = get_certificate_fingerprint(cert)
+                        raise CertificateChangedError(
+                            parsed.hostname,
+                            parsed.port,
+                            old_fingerprint,
+                            new_fingerprint,
+                        )
+                    elif message == "first_use":
+                        # First time seeing this host - trust it
+                        self.tofu_db.trust(parsed.hostname, parsed.port, cert)
+
             # Wait for response with timeout
-            response = await asyncio.wait_for(response_future, timeout=self.timeout)
+            response: GeminiResponse = await asyncio.wait_for(
+                response_future, timeout=self.timeout
+            )
             return response
         except TimeoutError as e:
             raise TimeoutError(f"Request timeout: {url}") from e

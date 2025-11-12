@@ -6,6 +6,8 @@ Protocol/Transport pattern for efficient, non-blocking I/O.
 
 import asyncio
 
+from cryptography import x509
+
 from ..protocol.constants import CRLF, MAX_RESPONSE_BODY_SIZE
 from ..protocol.response import GeminiResponse
 
@@ -56,11 +58,12 @@ class GeminiClientProtocol(asyncio.Protocol):
         Args:
             transport: The transport handling this connection.
         """
-        self.transport = transport  # type: ignore
+        self.transport = transport  # type: ignore[assignment]
 
         # Send Gemini request (just the URL + CRLF)
         request = f"{self.url}\r\n"
-        self.transport.write(request.encode("utf-8"))
+        if self.transport:
+            self.transport.write(request.encode("utf-8"))
 
     def data_received(self, data: bytes) -> None:
         """Called when data is received from the server.
@@ -189,3 +192,23 @@ class GeminiClientProtocol(asyncio.Protocol):
         """
         if not self.response_future.done():
             self.response_future.set_exception(exc)
+
+    def get_peer_certificate(self) -> x509.Certificate | None:
+        """Get the peer's certificate from the SSL transport.
+
+        Returns:
+            The peer's X.509 certificate, or None if not available.
+        """
+        if self.transport is None:
+            return None
+
+        # Get the peer certificate in DER format (binary)
+        der_cert = self.transport.get_extra_info("peercert", True)
+        if der_cert and isinstance(der_cert, bytes):
+            try:
+                return x509.load_der_x509_certificate(der_cert)
+            except Exception:
+                # If we can't load the certificate, return None
+                return None
+
+        return None
