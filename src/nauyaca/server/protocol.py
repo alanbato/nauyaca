@@ -5,12 +5,16 @@ Protocol/Transport pattern for efficient, non-blocking I/O.
 """
 
 import asyncio
+import time
 from collections.abc import Callable
 
 from ..protocol.constants import CRLF, MAX_REQUEST_SIZE
 from ..protocol.request import GeminiRequest
 from ..protocol.response import GeminiResponse
 from ..protocol.status import StatusCode
+from ..utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class GeminiServerProtocol(asyncio.Protocol):
@@ -47,6 +51,7 @@ class GeminiServerProtocol(asyncio.Protocol):
         self.transport: asyncio.Transport | None = None
         self.buffer = b""
         self.peer_name: tuple[str, int] | None = None
+        self.request_start_time: float | None = None
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         """Called when a client connects.
@@ -56,6 +61,13 @@ class GeminiServerProtocol(asyncio.Protocol):
         """
         self.transport = transport  # type: ignore
         self.peer_name = self.transport.get_extra_info("peername")
+        self.request_start_time = time.time()
+
+        logger.debug(
+            "connection_established",
+            client_ip=self.peer_name[0] if self.peer_name else "unknown",
+            client_port=self.peer_name[1] if self.peer_name else 0,
+        )
 
     def data_received(self, data: bytes) -> None:
         """Called when data is received from the client.
@@ -103,8 +115,24 @@ class GeminiServerProtocol(asyncio.Protocol):
         try:
             # Call request handler to get response
             response = self.request_handler(request)
+
+            # Set the URL in the response for logging (if not already set)
+            if not response.url:
+                # Create a new response with the URL
+                response = GeminiResponse(
+                    status=response.status,
+                    meta=response.meta,
+                    body=response.body,
+                    url=request.normalized_url,
+                )
         except Exception as e:
             # Catch any handler errors and return 40 TEMPORARY FAILURE
+            logger.error(
+                "handler_error",
+                client_ip=self.peer_name[0] if self.peer_name else "unknown",
+                error=str(e),
+                exception_type=type(e).__name__,
+            )
             self._send_error_response(
                 StatusCode.TEMPORARY_FAILURE, f"Server error: {str(e)}"
             )
@@ -121,6 +149,21 @@ class GeminiServerProtocol(asyncio.Protocol):
         """
         if not self.transport:
             return
+
+        # Calculate request duration
+        duration_ms = 0.0
+        if self.request_start_time:
+            duration_ms = (time.time() - self.request_start_time) * 1000
+
+        # Log the request
+        logger.info(
+            "request_completed",
+            client_ip=self.peer_name[0] if self.peer_name else "unknown",
+            status=response.status,
+            path=response.url or "unknown",
+            body_size=len(response.body) if response.body else 0,
+            duration_ms=round(duration_ms, 2),
+        )
 
         # Build response header: <STATUS><SPACE><META><CRLF>
         header = f"{response.status} {response.meta}\r\n"

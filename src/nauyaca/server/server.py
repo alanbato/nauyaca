@@ -4,18 +4,26 @@ This module provides functions for starting and managing Gemini servers.
 """
 
 import asyncio
+from pathlib import Path
 
 from ..content.templates import error_404
 from ..protocol.response import GeminiResponse
 from ..protocol.status import StatusCode
 from ..security.tls import create_server_context
+from ..utils.logging import configure_logging, get_logger
 from .config import ServerConfig
 from .handler import StaticFileHandler
 from .protocol import GeminiServerProtocol
 from .router import Router
 
 
-async def start_server(config: ServerConfig) -> None:
+async def start_server(
+    config: ServerConfig,
+    enable_directory_listing: bool = False,
+    log_level: str = "INFO",
+    log_file: Path | None = None,
+    json_logs: bool = False,
+) -> None:
     """Start a Gemini server with the given configuration.
 
     This function sets up a Gemini server with static file serving,
@@ -23,6 +31,10 @@ async def start_server(config: ServerConfig) -> None:
 
     Args:
         config: Server configuration.
+        enable_directory_listing: Enable automatic directory listings.
+        log_level: Logging level (DEBUG, INFO, WARNING, ERROR).
+        log_file: Optional path to log file. If None, logs to stdout.
+        json_logs: If True, output logs in JSON format.
 
     Raises:
         ValueError: If configuration is invalid.
@@ -40,12 +52,18 @@ async def start_server(config: ServerConfig) -> None:
         ... )
         >>> asyncio.run(start_server(config))
     """
+    # Configure logging first
+    configure_logging(log_level=log_level, log_file=log_file, json_logs=json_logs)
+    logger = get_logger(__name__)
+
     # Validate configuration
     config.validate()
 
     # Create router and static file handler
     router = Router()
-    static_handler = StaticFileHandler(config.document_root)
+    static_handler = StaticFileHandler(
+        config.document_root, enable_directory_listing=enable_directory_listing
+    )
 
     # Set up default 404 handler
     def default_404_handler(request):
@@ -66,9 +84,15 @@ async def start_server(config: ServerConfig) -> None:
     # Create SSL context
     if config.certfile and config.keyfile:
         ssl_context = create_server_context(str(config.certfile), str(config.keyfile))
+        logger.info(
+            "tls_configured",
+            certfile=str(config.certfile),
+            keyfile=str(config.keyfile),
+        )
     else:
         # For testing: create self-signed certificate
         ssl_context = _create_self_signed_context()
+        logger.warning("using_self_signed_certificate", mode="testing_only")
 
     # Get event loop
     loop = asyncio.get_running_loop()
@@ -81,8 +105,13 @@ async def start_server(config: ServerConfig) -> None:
         ssl=ssl_context,
     )
 
-    print(f"[Server] Serving on {config.host}:{config.port}")
-    print(f"[Server] Document root: {config.document_root}")
+    logger.info(
+        "server_started",
+        host=config.host,
+        port=config.port,
+        document_root=str(config.document_root),
+        directory_listing_enabled=enable_directory_listing,
+    )
 
     async with server:
         await server.serve_forever()
@@ -130,7 +159,7 @@ def _create_self_signed_context():
         except subprocess.CalledProcessError as e:
             raise RuntimeError(
                 f"Failed to generate self-signed certificate: {e.stderr.decode()}"
-            )
+            ) from e
 
         print("[Server] WARNING: Using self-signed certificate (testing only!)")
         print(f"[Server] Certificate: {certfile.name}")

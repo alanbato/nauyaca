@@ -18,6 +18,7 @@ app = typer.Typer(
     name="nauyaca",
     help="Nauyaca - A modern Gemini protocol client",
     add_completion=False,
+    no_args_is_help=True,
 )
 
 
@@ -87,16 +88,16 @@ def fetch(
     Examples:
 
         # Fetch a URL
-        $ python -m nauyaca fetch gemini://gemini.circumlunar.space/
+        $ nauyaca fetch gemini://gemini.circumlunar.space/
 
         # Fetch with verbose output
-        $ python -m nauyaca fetch -v gemini://example.com/
+        $ nauyaca fetch -v gemini://example.com/
 
         # Don't follow redirects
-        $ python -m nauyaca fetch --no-redirects gemini://example.com/
+        $ nauyaca fetch --no-redirects gemini://example.com/
 
         # Custom timeout
-        $ python -m nauyaca fetch -t 10 gemini://example.com/
+        $ nauyaca fetch -t 10 gemini://example.com/
     """
 
     async def _fetch():
@@ -161,7 +162,9 @@ def serve(
     cert: Path | None = typer.Option(
         None,
         "--cert",
-        help="Path to TLS certificate file (optional, generates self-signed if omitted)",
+        help=(
+            "Path to TLS certificate file (optional, generates self-signed if omitted)"
+        ),
         exists=True,
         file_okay=True,
         dir_okay=False,
@@ -176,22 +179,49 @@ def serve(
         dir_okay=False,
         resolve_path=True,
     ),
+    enable_directory_listing: bool = typer.Option(
+        False,
+        "--enable-directory-listing",
+        "-d",
+        help="Enable automatic directory listings for directories without index files",
+    ),
+    log_level: str = typer.Option(
+        "INFO",
+        "--log-level",
+        "-l",
+        help="Logging level (DEBUG, INFO, WARNING, ERROR)",
+    ),
+    log_file: Path | None = typer.Option(
+        None,
+        "--log-file",
+        help="Path to log file (default: stdout)",
+        dir_okay=False,
+        resolve_path=True,
+    ),
+    json_logs: bool = typer.Option(
+        False,
+        "--json-logs",
+        help="Output logs in JSON format (useful for log aggregation)",
+    ),
 ):
     """Start a Gemini server to serve files from a directory.
 
     Examples:
 
         # Serve current directory on default port (1965)
-        $ python -m nauyaca serve .
+        $ nauyaca serve .
 
-        # Serve specific directory with custom port
-        $ python -m nauyaca serve /var/gemini/capsule -p 1965
+        # Serve with directory listings enabled
+        $ nauyaca serve ./capsule --enable-directory-listing
 
-        # Serve with custom host and port
-        $ python -m nauyaca serve ./capsule --host 0.0.0.0 --port 1965
+        # Serve with custom logging
+        $ nauyaca serve ./capsule --log-level DEBUG
+
+        # Serve with JSON logs to file
+        $ nauyaca serve ./capsule --log-file server.log --json-logs
 
         # Serve with custom TLS certificate
-        $ python -m nauyaca serve ./capsule --cert cert.pem --key key.pem
+        $ nauyaca serve ./capsule --cert cert.pem --key key.pem
     """
 
     async def _serve():
@@ -205,8 +235,14 @@ def serve(
                 keyfile=key,
             )
 
-            # Start server
-            await start_server(config)
+            # Start server with logging and directory listing options
+            await start_server(
+                config,
+                enable_directory_listing=enable_directory_listing,
+                log_level=log_level,
+                log_file=log_file,
+                json_logs=json_logs,
+            )
 
         except ValueError as e:
             typer.echo(f"Configuration error: {e}", err=True)
@@ -216,7 +252,7 @@ def serve(
             raise typer.Exit(code=1) from e
         except KeyboardInterrupt:
             typer.echo("\n[Server] Shutting down...")
-            raise typer.Exit(code=0)
+            raise typer.Exit(code=0) from None
         except Exception as e:
             typer.echo(f"Unexpected error: {e}", err=True)
             raise typer.Exit(code=1) from e

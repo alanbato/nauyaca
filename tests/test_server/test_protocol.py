@@ -10,6 +10,13 @@ from nauyaca.protocol.status import StatusCode
 from nauyaca.server.protocol import GeminiServerProtocol
 
 
+def create_mock_transport():
+    """Helper to create a mock transport with proper peer info."""
+    transport = Mock()
+    transport.get_extra_info.return_value = ("127.0.0.1", 12345)
+    return transport
+
+
 class TestGeminiServerProtocol:
     """Test GeminiServerProtocol class."""
 
@@ -20,8 +27,7 @@ class TestGeminiServerProtocol:
             return GeminiResponse(status=20, meta="text/gemini", body="Hello")
 
         protocol = GeminiServerProtocol(handler)
-        transport = Mock()
-        transport.get_extra_info.return_value = ("127.0.0.1", 12345)
+        transport = create_mock_transport()
 
         protocol.connection_made(transport)
 
@@ -39,7 +45,7 @@ class TestGeminiServerProtocol:
             )
 
         protocol = GeminiServerProtocol(handler)
-        transport = Mock()
+        transport = create_mock_transport()
         protocol.connection_made(transport)
 
         # Send request
@@ -65,7 +71,7 @@ class TestGeminiServerProtocol:
             return GeminiResponse(status=20, meta="text/gemini", body="Results")
 
         protocol = GeminiServerProtocol(handler)
-        transport = Mock()
+        transport = create_mock_transport()
         protocol.connection_made(transport)
 
         protocol.data_received(b"gemini://example.com/search?q=test\r\n")
@@ -79,7 +85,7 @@ class TestGeminiServerProtocol:
             return GeminiResponse(status=20, meta="text/gemini", body="OK")
 
         protocol = GeminiServerProtocol(handler)
-        transport = Mock()
+        transport = create_mock_transport()
         protocol.connection_made(transport)
 
         # Send request in fragments
@@ -98,7 +104,7 @@ class TestGeminiServerProtocol:
             return GeminiResponse(status=20, meta="text/gemini", body="OK")
 
         protocol = GeminiServerProtocol(handler)
-        transport = Mock()
+        transport = create_mock_transport()
         protocol.connection_made(transport)
 
         # Send invalid UTF-8
@@ -117,7 +123,7 @@ class TestGeminiServerProtocol:
             return GeminiResponse(status=20, meta="text/gemini", body="OK")
 
         protocol = GeminiServerProtocol(handler)
-        transport = Mock()
+        transport = create_mock_transport()
         protocol.connection_made(transport)
 
         # Send invalid URL (wrong scheme)
@@ -135,7 +141,7 @@ class TestGeminiServerProtocol:
             return GeminiResponse(status=20, meta="text/gemini", body="OK")
 
         protocol = GeminiServerProtocol(handler)
-        transport = Mock()
+        transport = create_mock_transport()
         protocol.connection_made(transport)
 
         # Send request larger than 1024 bytes
@@ -155,7 +161,7 @@ class TestGeminiServerProtocol:
             raise RuntimeError("Something went wrong!")
 
         protocol = GeminiServerProtocol(handler)
-        transport = Mock()
+        transport = create_mock_transport()
         protocol.connection_made(transport)
 
         protocol.data_received(b"gemini://example.com/\r\n")
@@ -173,7 +179,7 @@ class TestGeminiServerProtocol:
             return GeminiResponse(status=30, meta="gemini://example.com/new", body=None)
 
         protocol = GeminiServerProtocol(handler)
-        transport = Mock()
+        transport = create_mock_transport()
         protocol.connection_made(transport)
 
         protocol.data_received(b"gemini://example.com/old\r\n")
@@ -191,7 +197,7 @@ class TestGeminiServerProtocol:
             return GeminiResponse(status=20, meta="text/gemini", body="OK")
 
         protocol = GeminiServerProtocol(handler)
-        transport = Mock()
+        transport = create_mock_transport()
         protocol.connection_made(transport)
 
         # Call connection_lost

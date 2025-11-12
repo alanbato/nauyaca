@@ -7,6 +7,7 @@ and generating responses.
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+from ..content.gemtext import generate_directory_listing
 from ..protocol.constants import MIME_TYPE_GEMTEXT, MIME_TYPE_PLAIN_TEXT
 from ..protocol.request import GeminiRequest
 from ..protocol.response import GeminiResponse
@@ -50,7 +51,10 @@ class StaticFileHandler(RequestHandler):
     """
 
     def __init__(
-        self, document_root: Path | str, default_index: str = "index.gmi"
+        self,
+        document_root: Path | str,
+        default_index: str = "index.gmi",
+        enable_directory_listing: bool = False,
     ) -> None:
         """Initialize the static file handler.
 
@@ -58,9 +62,12 @@ class StaticFileHandler(RequestHandler):
             document_root: Path to the directory containing files to serve.
             default_index: Default file to serve for directory requests
                 (default: "index.gmi").
+            enable_directory_listing: If True, generate directory listings for
+                directories without an index file (default: False).
         """
         self.document_root = Path(document_root).resolve()
         self.default_index = default_index
+        self.enable_directory_listing = enable_directory_listing
 
         if not self.document_root.exists():
             raise ValueError(f"Document root does not exist: {self.document_root}")
@@ -86,9 +93,32 @@ class StaticFileHandler(RequestHandler):
         if not self._is_safe_path(file_path):
             return GeminiResponse(status=StatusCode.NOT_FOUND.value, meta="Not found")
 
-        # If path is a directory, try to serve the default index
+        # If path is a directory, try to serve the default index or generate listing
         if file_path.is_dir():
-            file_path = file_path / self.default_index
+            index_path = file_path / self.default_index
+
+            if index_path.exists() and index_path.is_file():
+                # Serve the index file
+                file_path = index_path
+            elif self.enable_directory_listing:
+                # Generate directory listing
+                try:
+                    listing = generate_directory_listing(file_path, request.path)
+                    return GeminiResponse(
+                        status=StatusCode.SUCCESS.value,
+                        meta=MIME_TYPE_GEMTEXT,
+                        body=listing,
+                    )
+                except Exception as e:
+                    return GeminiResponse(
+                        status=StatusCode.TEMPORARY_FAILURE.value,
+                        meta=f"Error generating directory listing: {str(e)}",
+                    )
+            else:
+                # No index and directory listing disabled
+                return GeminiResponse(
+                    status=StatusCode.NOT_FOUND.value, meta="Not found"
+                )
 
         # Check if file exists
         if not file_path.exists() or not file_path.is_file():

@@ -85,7 +85,7 @@ class Router:
             try:
                 compiled_regex = re.compile(pattern)
             except re.error as e:
-                raise ValueError(f"Invalid regex pattern '{pattern}': {e}")
+                raise ValueError(f"Invalid regex pattern '{pattern}': {e}") from e
 
         route = Route(
             pattern=pattern,
