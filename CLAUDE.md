@@ -6,7 +6,90 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Nauyaca is a modern, production-ready implementation of the Gemini protocol in Python using asyncio's Protocol/Transport pattern. The project provides both server and client capabilities with full protocol feature support including TLS, client certificates, TOFU validation, and comprehensive error handling.
 
-**Current Status**: Early development - prototype exists in `sample/` directory. The production implementation will be built in `src/nauyaca/` following the architecture and patterns demonstrated in the prototype.
+**Current Status**: Active development - core functionality complete, security hardening phases 1-5 complete.
+
+## Implementation Status
+
+### ✅ Completed Features
+
+**Phase 1-2: Certificate Management & TOFU** (Complete)
+- Certificate generation, fingerprinting, validation
+- SQLite-backed TOFU database with export/import
+- Certificate change detection and revocation
+- CLI commands: `tofu list`, `tofu trust`, `tofu revoke`, `tofu export`, `tofu import`
+
+**Phase 3: TOFU Client Integration** (Complete)
+- Integrated TOFU validation in client session
+- Certificate verification workflow
+- User prompts for certificate changes
+- Full client-side security implementation
+
+**Phase 4: Rate Limiting & DoS Protection** (Complete)
+- Token bucket rate limiting algorithm
+- Per-IP rate tracking with automatic cleanup
+- Configurable capacity and refill rate
+- Status 44 (SLOW DOWN) responses with retry-after
+- IP-based access control (allow/deny lists with CIDR support)
+- Middleware chain architecture for composable security
+
+**Phase 5: TOML Configuration Support** (Complete)
+- `ServerConfig.from_toml()` method with tomllib
+- Configuration file support with `--config` flag
+- CLI argument overrides for config file values
+- Minimal and full configuration examples
+- Comprehensive tests (14 config tests, 18 middleware tests)
+
+**Phase 6: Integration & Testing** (In Progress)
+- ✅ Middleware tests complete (18 tests)
+- ✅ Configuration tests complete (14 tests)
+- ✅ TOFU tests complete
+- ✅ SECURITY.md documentation complete
+- ✅ README.md updated with configuration and security features
+- 🚧 Integration testing in progress
+- 🚧 End-to-end validation pending
+
+**Core Protocol Implementation** (Complete)
+- Server protocol with request parsing and routing
+- Client protocol with response handling
+- TLS 1.2+ enforcement
+- All Gemini status codes (1x-6x)
+- Request timeout protection (30s)
+- Path traversal protection
+- Request size validation (1024 byte limit)
+
+### 🚧 In Progress
+
+- Final integration testing
+- End-to-end validation with real certificates
+- Performance testing under load
+
+### 📋 Remaining Work
+
+- Additional integration tests for middleware + server
+- Performance benchmarking
+- Optional: Connection pooling optimization
+- Optional: Redis-backed rate limiting for distributed deployments
+
+### 📁 Key Files
+
+**Implemented:**
+- `src/nauyaca/server/middleware.py` - Rate limiting, access control, middleware chain
+- `src/nauyaca/server/config.py` - TOML configuration with validation
+- `src/nauyaca/server/protocol.py` - Server protocol with middleware integration
+- `src/nauyaca/security/certificates.py` - Certificate management
+- `src/nauyaca/security/tofu.py` - TOFU database and validation
+- `src/nauyaca/client/session.py` - Client with TOFU integration
+- `tests/test_server/test_middleware.py` - Middleware test suite
+- `tests/test_server/test_config.py` - Configuration test suite
+- `tests/test_security/test_tofu_export_import.py` - TOFU tests
+- `config.example.toml` - Full configuration example
+- `config.minimal.toml` - Minimal configuration example
+- `SECURITY.md` - Comprehensive security documentation
+
+**Reference Materials:**
+- `sample/GEMINI_ASYNCIO_GUIDE.md` - Protocol/Transport pattern guide
+- `sample/gemini_protocol.py` - Reference implementation
+- `.project_docs/SECURITY_HARDENING_ROADMAP.md` - Development roadmap
 
 ## Development Setup
 

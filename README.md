@@ -113,52 +113,73 @@ gemini-protocol/
 
 ```bash
 # Standalone CLI tool
-uv tool install gemini --from nauyaca
+uv tool install nauyaca
 
 # Use it as a library in your project
 uv add nauyaca
 ```
 
-### Generate SSL Certificates (for development)
-
-```bash
-# Generate self-signed certificate
-python -m nauyaca.utils.certificates generate \
-    --hostname localhost \
-    --output capsule/certs/
-```
-
 ### Running the Server
 
 ```bash
-# Start server with default settings
-gemini-server --root ./capsule --host localhost --port 1965
+# Minimal - serve current directory (uses auto-generated cert)
+nauyaca serve ./capsule
 
-# Or use Python module
-python -m nauyaca server --root ./capsule
+# With custom host/port
+nauyaca serve ./capsule --host 0.0.0.0 --port 1965
+
+# With configuration file
+nauyaca serve --config config.toml
+
+# With TLS certificates
+nauyaca serve ./capsule --cert cert.pem --key key.pem
+```
+
+### Generate SSL Certificates
+
+```bash
+# Generate self-signed certificate for testing
+nauyaca cert generate --hostname localhost --output ./certs
+
+# For production (with proper hostname)
+nauyaca cert generate --hostname gemini.example.com --days 365
 ```
 
 ### Using the Client
 
 ```bash
 # Fetch a resource
-gemini-client gemini://localhost:1965/
+nauyaca fetch gemini://gemini.circumlunar.space/
 
-# Interactive mode
-gemini-client --interactive
+# With TOFU certificate validation
+nauyaca fetch gemini://example.com/ --tofu
 
-# Or as a library
-python -c "
+# Manage TOFU database
+nauyaca tofu list
+nauyaca tofu export backup.json
+nauyaca tofu import backup.json
+nauyaca tofu revoke example.com
+```
+
+### As a Library
+
+```python
 import asyncio
-from gemini.client import GeminiClient
+from nauyaca.client.session import fetch_gemini
 
 async def main():
-    async with GeminiClient() as client:
-        response = await client.fetch('gemini://gemini.circumlunar.space/')
-        print(response.body)
+    # Simple fetch with TOFU validation
+    status, meta, body = await fetch_gemini("gemini://example.com/")
+
+    if status == 20:
+        print(f"Content-Type: {meta}")
+        print(body)
+    elif status == 30 or status == 31:
+        print(f"Redirect to: {meta}")
+    else:
+        print(f"Error {status}: {meta}")
 
 asyncio.run(main())
-"
 ```
 
 
@@ -227,57 +248,85 @@ This project follows:
 
 ### Server Configuration
 
-Create a `config.toml` file:
+The server supports TOML configuration files for persistent settings. Command-line arguments override config file values.
+
+#### Minimal Configuration
+
+Create a `config.toml` file with just the essentials:
+
+```toml
+[server]
+# Required: Path to your gemini content
+document_root = "./capsule"
+
+# All other settings use sensible defaults:
+# - host: localhost
+# - port: 1965
+# - TLS: auto-generated self-signed certificate (for testing only!)
+# - Rate limiting: enabled with default limits
+# - Access control: allow all
+```
+
+#### Full Configuration Example
+
+For production deployments, use a complete configuration:
 
 ```toml
 [server]
 host = "0.0.0.0"
 port = 1965
-root = "./capsule"
-index = "index.gmi"
-
-[tls]
+document_root = "./capsule"
 certfile = "./certs/cert.pem"
 keyfile = "./certs/key.pem"
-min_version = "TLS1_2"
 
-[security]
-require_client_cert = false
-rate_limit = 100  # requests per minute
-max_request_size = 1024  # bytes
+[rate_limit]
+enabled = true
+capacity = 10           # Max burst size (requests)
+refill_rate = 1.0      # Requests per second
+retry_after = 30       # Seconds to wait when limited
 
-[logging]
-level = "INFO"
-format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-file = "./logs/server.log"
+[access_control]
+# IP-based access control (supports CIDR notation)
+allow_list = ["192.168.1.0/24", "10.0.0.1"]
+deny_list = ["203.0.113.0/24"]
+default_allow = true   # Default policy when no lists match
+```
 
-[virtual_hosts]
-"example.com" = "./capsules/example"
-"another.com" = "./capsules/another"
+#### Using Configuration Files
+
+```bash
+# Load configuration from file
+nauyaca serve --config config.toml
+
+# Override specific settings
+nauyaca serve --config config.toml --host 0.0.0.0 --port 11965
+
+# Without config file (all settings from CLI)
+nauyaca serve ./capsule --host localhost --port 1965
 ```
 
 ### Client Configuration
 
-Create `~/.config/nauyaca/config.toml`:
+The client uses TOFU (Trust-On-First-Use) certificate validation with a local database:
 
-```toml
-[client]
-timeout = 30
-follow_redirects = true
-max_redirects = 5
-verify_mode = "tofu"  # tofu, strict, or none
+```bash
+# TOFU database location
+~/.nauyaca/known_hosts.db
 
-[tofu]
-database = "~/.config/gemini/known_hosts.db"
-prompt_on_change = true
+# List known hosts
+nauyaca tofu list
 
-[certificates]
-directory = "~/.config/gemini/certs"
+# Export known hosts for backup
+nauyaca tofu export backup.json
 
-[cache]
-enabled = true
-directory = "~/.cache/gemini"
-max_age = 3600  # seconds
+# Import known hosts
+nauyaca tofu import backup.json
+
+# Revoke trust for a host
+nauyaca tofu revoke example.com
+
+# Manually trust a host
+nauyaca tofu trust example.com --fingerprint <sha256>
 ```
 
 ## 🏛 Architecture
@@ -382,33 +431,151 @@ class MyHandler(RequestHandler):
         )
 ```
 
-## 🔒 Security Considerations
+## 🔒 Security Features
 
-### TLS Requirements
-- Minimum TLS 1.2
-- Self-signed certificates acceptable (TOFU model)
-- Client certificates supported for authentication
+Nauyaca implements multiple layers of security to protect both servers and clients. See [SECURITY.md](SECURITY.md) for complete security documentation.
 
-### TOFU Implementation
-- First connection: Accept and store certificate fingerprint
-- Subsequent connections: Verify against stored fingerprint
-- Certificate change: Prompt user for confirmation
+### TLS Security
 
-### Rate Limiting
-- Configurable requests per minute per IP
-- Token bucket algorithm
-- Graceful degradation
+**Mandatory TLS 1.2+**
+- All Gemini connections require TLS 1.2 or higher
+- No plaintext fallback - non-TLS connections rejected
+- Strong cipher suites enforced by default
+- Self-signed certificates supported (TOFU model)
 
-### Path Traversal Protection
 ```python
-# Bad: ../../../etc/passwd
-# Good: Canonicalize and validate paths
-from pathlib import Path
+# Automatic strong TLS configuration
+ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+```
 
+### TOFU (Trust-On-First-Use) Certificate Validation
+
+**How TOFU Works:**
+1. **First Connection**: Accept certificate, store SHA-256 fingerprint
+2. **Subsequent Connections**: Verify certificate matches stored fingerprint
+3. **Certificate Change**: Prompt user for confirmation (may be renewal or MITM attack)
+
+**TOFU Management:**
+```bash
+# List all known hosts with fingerprints
+nauyaca tofu list
+
+# Export for backup/sharing
+nauyaca tofu export backup.json
+
+# Import from backup
+nauyaca tofu import backup.json
+
+# Revoke trust for compromised host
+nauyaca tofu revoke example.com
+
+# Manually trust a specific certificate
+nauyaca tofu trust example.com --fingerprint abc123...
+```
+
+**Storage**: Certificates stored in `~/.nauyaca/known_hosts.db` (SQLite database)
+
+### Rate Limiting & DoS Protection
+
+**Token Bucket Algorithm**
+- Industry-standard rate limiting per client IP
+- Configurable capacity (burst size) and refill rate
+- Automatic cleanup of idle rate limiters (memory efficient)
+- Returns status `44 SLOW DOWN` when limits exceeded
+
+**Configuration:**
+```toml
+[rate_limit]
+enabled = true
+capacity = 10           # Max burst size
+refill_rate = 1.0      # Requests per second
+retry_after = 30       # Seconds to wait when limited
+```
+
+**Example Rate Limits:**
+- **Personal capsule**: capacity=5, refill_rate=0.5 (restrictive)
+- **Public server**: capacity=20, refill_rate=2.0 (generous)
+- **High-traffic**: capacity=50, refill_rate=5.0 (very generous)
+
+### IP-based Access Control
+
+**Allow/Deny Lists with CIDR Support**
+- Individual IPs: `10.0.0.1`
+- IPv4 networks: `192.168.1.0/24`
+- IPv6 networks: `2001:db8::/32`
+- Configurable default policy (allow or deny)
+
+**Configuration:**
+```toml
+[access_control]
+allow_list = ["192.168.1.0/24", "10.0.0.1"]  # Whitelist
+deny_list = ["203.0.113.0/24"]               # Blacklist
+default_allow = true                          # Default policy
+```
+
+**Processing Order:**
+1. Check deny list → reject if match
+2. Check allow list → accept if match
+3. Apply default policy
+
+**Use Cases:**
+- **Private capsule**: Set `default_allow = false`, add trusted IPs to allow_list
+- **Public server**: Set `default_allow = true`, add abusive IPs to deny_list
+
+### Request Validation & Protection
+
+**Size Limits:**
+- Maximum request size: 1024 bytes (per Gemini spec)
+- Oversized requests receive status `59 BAD REQUEST`
+
+**Timeout Protection:**
+- Default request timeout: 30 seconds
+- Slow clients receive status `40 TIMEOUT`
+- Prevents slow-loris attacks
+
+**Path Traversal Protection:**
+```python
+# All file paths canonicalized and validated
 safe_path = (root / requested_path).resolve()
 if not safe_path.is_relative_to(root):
-    return Response(status=51, meta='Invalid path')
+    return Response(status=51, meta='Not found')  # Never expose path info
 ```
+
+### Client Certificate Support
+
+**Mutual TLS (mTLS):**
+- Server can request client certificates for authentication
+- Status codes `60-62` for certificate-based access control
+- Certificate fingerprint validation
+
+**Generate Client Certificate:**
+```bash
+nauyaca cert generate-client --name "My Identity"
+```
+
+### Security Best Practices
+
+**For Server Operators:**
+- Use proper certificates (CA-signed or self-signed with TOFU)
+- Keep private keys secure (file mode 0600)
+- Enable rate limiting appropriate to your traffic
+- Use whitelist mode for private capsules
+- Monitor logs for suspicious activity
+- Keep document root clean of sensitive files
+
+**For Client Users:**
+- Verify certificate fingerprints on first connection
+- Be suspicious of unexpected certificate changes
+- Keep TOFU database backed up
+- Use separate certificates for different identities
+- Check redirect destinations before following
+
+**Important**: See [SECURITY.md](SECURITY.md) for:
+- Complete security documentation
+- Vulnerability reporting process
+- Known limitations
+- Deployment guidelines
+- Compliance information
 
 ### Systemd Service Example
 
