@@ -63,7 +63,7 @@ def parse_url(url: str) -> ParsedURL:
     if not parsed.scheme:
         raise ValueError(f"URL missing scheme: {url}")
 
-    if parsed.scheme not in ("gemini", "geminis"):
+    if parsed.scheme != "gemini":
         raise ValueError(f"Invalid scheme '{parsed.scheme}': expected 'gemini'")
 
     # Validate hostname
