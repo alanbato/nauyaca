@@ -1,7 +1,6 @@
 """Tests for GeminiClientProtocol."""
 
 import asyncio
-from unittest.mock import Mock
 
 import pytest
 
@@ -12,14 +11,14 @@ from nauyaca.protocol.constants import CRLF
 class TestGeminiClientProtocol:
     """Test GeminiClientProtocol."""
 
-    async def test_connection_made_sends_request(self):
+    async def test_connection_made_sends_request(self, mocker):
         """Test that connection_made sends the URL request."""
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         protocol = GeminiClientProtocol("gemini://example.com/", future)
 
         # Mock transport
-        transport = Mock()
+        transport = mocker.Mock()
         protocol.connection_made(transport)
 
         # Verify request was sent
@@ -27,14 +26,14 @@ class TestGeminiClientProtocol:
         sent_data = transport.write.call_args[0][0]
         assert sent_data == b"gemini://example.com/\r\n"
 
-    async def test_data_received_success_response(self):
+    async def test_data_received_success_response(self, mocker):
         """Test receiving a success response."""
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         protocol = GeminiClientProtocol("gemini://example.com/", future)
 
         # Mock transport
-        transport = Mock()
+        transport = mocker.Mock()
         protocol.connection_made(transport)
 
         # Send response header
@@ -57,14 +56,14 @@ class TestGeminiClientProtocol:
         assert response.meta == "text/gemini"
         assert response.body == "# Hello World\n"
 
-    async def test_data_received_in_chunks(self):
+    async def test_data_received_in_chunks(self, mocker):
         """Test receiving data in multiple chunks."""
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         protocol = GeminiClientProtocol("gemini://example.com/", future)
 
         # Mock transport
-        transport = Mock()
+        transport = mocker.Mock()
         protocol.connection_made(transport)
 
         # Send response in chunks
@@ -86,14 +85,14 @@ class TestGeminiClientProtocol:
         response = await future
         assert response.body == "Hello World"
 
-    async def test_non_success_closes_immediately(self):
+    async def test_non_success_closes_immediately(self, mocker):
         """Test that non-success responses close immediately."""
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         protocol = GeminiClientProtocol("gemini://example.com/", future)
 
         # Mock transport
-        transport = Mock()
+        transport = mocker.Mock()
         protocol.connection_made(transport)
 
         # Send error response
@@ -109,14 +108,14 @@ class TestGeminiClientProtocol:
         assert response.meta == "Not found"
         assert response.body is None
 
-    async def test_redirect_response(self):
+    async def test_redirect_response(self, mocker):
         """Test handling redirect responses."""
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         protocol = GeminiClientProtocol("gemini://example.com/", future)
 
         # Mock transport
-        transport = Mock()
+        transport = mocker.Mock()
         protocol.connection_made(transport)
 
         # Send redirect response
@@ -132,14 +131,14 @@ class TestGeminiClientProtocol:
         assert response.meta == "gemini://example.com/new"
         assert response.body is None
 
-    async def test_invalid_status_code(self):
+    async def test_invalid_status_code(self, mocker):
         """Test handling invalid status code."""
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         protocol = GeminiClientProtocol("gemini://example.com/", future)
 
         # Mock transport
-        transport = Mock()
+        transport = mocker.Mock()
         protocol.connection_made(transport)
 
         # Send invalid status
@@ -150,14 +149,14 @@ class TestGeminiClientProtocol:
         with pytest.raises(ValueError, match="Invalid status code"):
             await future
 
-    async def test_connection_closed_before_header(self):
+    async def test_connection_closed_before_header(self, mocker):
         """Test handling connection closed before receiving header."""
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         protocol = GeminiClientProtocol("gemini://example.com/", future)
 
         # Mock transport
-        transport = Mock()
+        transport = mocker.Mock()
         protocol.connection_made(transport)
 
         # Close connection without sending data
@@ -167,14 +166,14 @@ class TestGeminiClientProtocol:
         with pytest.raises(ConnectionError, match="closed before receiving response"):
             await future
 
-    async def test_connection_error(self):
+    async def test_connection_error(self, mocker):
         """Test handling connection errors."""
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         protocol = GeminiClientProtocol("gemini://example.com/", future)
 
         # Mock transport
-        transport = Mock()
+        transport = mocker.Mock()
         protocol.connection_made(transport)
 
         # Simulate connection error
@@ -185,7 +184,7 @@ class TestGeminiClientProtocol:
         with pytest.raises(ConnectionError, match="Network error"):
             await future
 
-    async def test_response_body_size_exceeded(self):
+    async def test_response_body_size_exceeded(self, mocker):
         """Test handling response body that exceeds maximum size."""
         from nauyaca.protocol.constants import MAX_RESPONSE_BODY_SIZE
 
@@ -194,7 +193,7 @@ class TestGeminiClientProtocol:
         protocol = GeminiClientProtocol("gemini://example.com/", future)
 
         # Mock transport
-        transport = Mock()
+        transport = mocker.Mock()
         protocol.connection_made(transport)
 
         # Send success header
@@ -213,14 +212,14 @@ class TestGeminiClientProtocol:
         with pytest.raises(Exception, match="Response body exceeds maximum size"):
             await future
 
-    async def test_empty_header_line(self):
+    async def test_empty_header_line(self, mocker):
         """Test handling completely empty header line."""
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         protocol = GeminiClientProtocol("gemini://example.com/", future)
 
         # Mock transport
-        transport = Mock()
+        transport = mocker.Mock()
         protocol.connection_made(transport)
 
         # Send empty header (just CRLF)
@@ -234,14 +233,14 @@ class TestGeminiClientProtocol:
         with pytest.raises(ValueError, match="Invalid status code"):
             await future
 
-    async def test_status_code_out_of_range_low(self):
+    async def test_status_code_out_of_range_low(self, mocker):
         """Test handling status code below valid range."""
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         protocol = GeminiClientProtocol("gemini://example.com/", future)
 
         # Mock transport
-        transport = Mock()
+        transport = mocker.Mock()
         protocol.connection_made(transport)
 
         # Send status code below 10
@@ -255,14 +254,14 @@ class TestGeminiClientProtocol:
         with pytest.raises(ValueError, match="Status code out of range"):
             await future
 
-    async def test_status_code_out_of_range_high(self):
+    async def test_status_code_out_of_range_high(self, mocker):
         """Test handling status code above valid range."""
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         protocol = GeminiClientProtocol("gemini://example.com/", future)
 
         # Mock transport
-        transport = Mock()
+        transport = mocker.Mock()
         protocol.connection_made(transport)
 
         # Send status code above 69
@@ -276,14 +275,14 @@ class TestGeminiClientProtocol:
         with pytest.raises(ValueError, match="Status code out of range"):
             await future
 
-    async def test_unicode_decode_error_in_body(self):
+    async def test_unicode_decode_error_in_body(self, mocker):
         """Test handling invalid UTF-8 in response body."""
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         protocol = GeminiClientProtocol("gemini://example.com/", future)
 
         # Mock transport
-        transport = Mock()
+        transport = mocker.Mock()
         protocol.connection_made(transport)
 
         # Send success header
@@ -300,14 +299,14 @@ class TestGeminiClientProtocol:
         with pytest.raises(UnicodeDecodeError):
             await future
 
-    async def test_eof_received(self):
+    async def test_eof_received(self, mocker):
         """Test eof_received returns False to close connection."""
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         protocol = GeminiClientProtocol("gemini://example.com/", future)
 
         # Mock transport
-        transport = Mock()
+        transport = mocker.Mock()
         protocol.connection_made(transport)
 
         # Call eof_received
@@ -316,7 +315,7 @@ class TestGeminiClientProtocol:
         # Should return False to indicate full connection close
         assert result is False
 
-    async def test_protocol_sends_url_as_provided(self):
+    async def test_protocol_sends_url_as_provided(self, mocker):
         """Test that protocol sends URL exactly as provided (without modification).
 
         The protocol layer should NOT normalize - that's the session layer's job.
@@ -327,7 +326,7 @@ class TestGeminiClientProtocol:
 
         # Protocol with URL that has trailing slash
         protocol_with_slash = GeminiClientProtocol("gemini://example.com/", future)
-        transport_with_slash = Mock()
+        transport_with_slash = mocker.Mock()
         protocol_with_slash.connection_made(transport_with_slash)
 
         sent_data_with_slash = transport_with_slash.write.call_args[0][0]
@@ -336,7 +335,7 @@ class TestGeminiClientProtocol:
         # Protocol with URL that lacks trailing slash (should send as-is)
         future2 = loop.create_future()
         protocol_without_slash = GeminiClientProtocol("gemini://example.com", future2)
-        transport_without_slash = Mock()
+        transport_without_slash = mocker.Mock()
         protocol_without_slash.connection_made(transport_without_slash)
 
         sent_data_without_slash = transport_without_slash.write.call_args[0][0]

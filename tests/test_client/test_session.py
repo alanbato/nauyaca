@@ -2,7 +2,7 @@
 
 import asyncio
 import ssl
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -194,7 +194,7 @@ class TestGeminiClient:
         assert response.status == 30
         assert response.meta == "gemini://example.com/other"
 
-    async def test_client_normalizes_url_before_sending(self):
+    async def test_client_normalizes_url_before_sending(self, mocker):
         """Test that client normalizes URL (adds trailing /) before sending to server.
 
         Per Gemini spec: "If a client is making a request with an empty path,
@@ -212,9 +212,7 @@ class TestGeminiClient:
             sent_url = protocol.url
 
             # Mock transport and future
-            from unittest.mock import Mock
-
-            transport = Mock()
+            transport = mocker.Mock()
             protocol.connection_made(transport)
 
             # Return mock transport and protocol

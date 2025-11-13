@@ -1,7 +1,5 @@
 """Tests for GeminiServerProtocol."""
 
-from unittest.mock import Mock
-
 import pytest
 
 from nauyaca.protocol.request import GeminiRequest
@@ -10,31 +8,30 @@ from nauyaca.protocol.status import StatusCode
 from nauyaca.server.protocol import GeminiServerProtocol
 
 
-def create_mock_transport():
-    """Helper to create a mock transport with proper peer info."""
-    transport = Mock()
-    transport.get_extra_info.return_value = ("127.0.0.1", 12345)
-    return transport
-
-
 class TestGeminiServerProtocol:
     """Test GeminiServerProtocol class."""
 
-    def test_connection_made(self):
+    def create_mock_transport(self, mocker):
+        """Helper to create a mock transport with proper peer info."""
+        transport = mocker.Mock()
+        transport.get_extra_info.return_value = ("127.0.0.1", 12345)
+        return transport
+
+    def test_connection_made(self, mocker):
         """Test connection_made callback."""
 
         def handler(request):
             return GeminiResponse(status=20, meta="text/gemini", body="Hello")
 
         protocol = GeminiServerProtocol(handler)
-        transport = create_mock_transport()
+        transport = self.create_mock_transport(mocker)
 
         protocol.connection_made(transport)
 
         assert protocol.transport is transport
         assert protocol.peer_name == ("127.0.0.1", 12345)
 
-    def test_simple_request_response(self):
+    def test_simple_request_response(self, mocker):
         """Test handling a simple valid request."""
 
         def handler(request):
@@ -45,7 +42,7 @@ class TestGeminiServerProtocol:
             )
 
         protocol = GeminiServerProtocol(handler)
-        transport = create_mock_transport()
+        transport = self.create_mock_transport(mocker)
         protocol.connection_made(transport)
 
         # Send request
@@ -62,7 +59,7 @@ class TestGeminiServerProtocol:
         # Verify connection was closed
         transport.close.assert_called_once()
 
-    def test_request_with_path_and_query(self):
+    def test_request_with_path_and_query(self, mocker):
         """Test handling request with path and query."""
 
         def handler(request):
@@ -71,21 +68,21 @@ class TestGeminiServerProtocol:
             return GeminiResponse(status=20, meta="text/gemini", body="Results")
 
         protocol = GeminiServerProtocol(handler)
-        transport = create_mock_transport()
+        transport = self.create_mock_transport(mocker)
         protocol.connection_made(transport)
 
         protocol.data_received(b"gemini://example.com/search?q=test\r\n")
 
         transport.close.assert_called_once()
 
-    def test_fragmented_request(self):
+    def test_fragmented_request(self, mocker):
         """Test that fragmented data is buffered correctly."""
 
         def handler(request):
             return GeminiResponse(status=20, meta="text/gemini", body="OK")
 
         protocol = GeminiServerProtocol(handler)
-        transport = create_mock_transport()
+        transport = self.create_mock_transport(mocker)
         protocol.connection_made(transport)
 
         # Send request in fragments
@@ -97,14 +94,14 @@ class TestGeminiServerProtocol:
         transport.close.assert_called_once()
         assert transport.write.call_count == 2
 
-    def test_error_response_invalid_utf8(self):
+    def test_error_response_invalid_utf8(self, mocker):
         """Test error response for invalid UTF-8 encoding."""
 
         def handler(request):
             return GeminiResponse(status=20, meta="text/gemini", body="OK")
 
         protocol = GeminiServerProtocol(handler)
-        transport = create_mock_transport()
+        transport = self.create_mock_transport(mocker)
         protocol.connection_made(transport)
 
         # Send invalid UTF-8
@@ -116,14 +113,14 @@ class TestGeminiServerProtocol:
         assert b"UTF-8" in header_call[0][0]
         transport.close.assert_called_once()
 
-    def test_error_response_invalid_url(self):
+    def test_error_response_invalid_url(self, mocker):
         """Test error response for invalid URL."""
 
         def handler(request):
             return GeminiResponse(status=20, meta="text/gemini", body="OK")
 
         protocol = GeminiServerProtocol(handler)
-        transport = create_mock_transport()
+        transport = self.create_mock_transport(mocker)
         protocol.connection_made(transport)
 
         # Send invalid URL (wrong scheme)
@@ -134,14 +131,14 @@ class TestGeminiServerProtocol:
         assert b"59 " in header_call[0][0]  # Status 59 = BAD_REQUEST
         transport.close.assert_called_once()
 
-    def test_error_response_request_too_long(self):
+    def test_error_response_request_too_long(self, mocker):
         """Test error response for request exceeding max size."""
 
         def handler(request):
             return GeminiResponse(status=20, meta="text/gemini", body="OK")
 
         protocol = GeminiServerProtocol(handler)
-        transport = create_mock_transport()
+        transport = self.create_mock_transport(mocker)
         protocol.connection_made(transport)
 
         # Send request larger than 1024 bytes
@@ -154,14 +151,14 @@ class TestGeminiServerProtocol:
         assert b"maximum size" in header_call[0][0]
         transport.close.assert_called_once()
 
-    def test_handler_exception(self):
+    def test_handler_exception(self, mocker):
         """Test that handler exceptions result in TEMPORARY_FAILURE."""
 
         def handler(request):
             raise RuntimeError("Something went wrong!")
 
         protocol = GeminiServerProtocol(handler)
-        transport = create_mock_transport()
+        transport = self.create_mock_transport(mocker)
         protocol.connection_made(transport)
 
         protocol.data_received(b"gemini://example.com/\r\n")
@@ -172,14 +169,14 @@ class TestGeminiServerProtocol:
         assert b"Server error" in header_call[0][0]
         transport.close.assert_called_once()
 
-    def test_response_without_body(self):
+    def test_response_without_body(self, mocker):
         """Test sending response without body (e.g., redirect)."""
 
         def handler(request):
             return GeminiResponse(status=30, meta="gemini://example.com/new", body=None)
 
         protocol = GeminiServerProtocol(handler)
-        transport = create_mock_transport()
+        transport = self.create_mock_transport(mocker)
         protocol.connection_made(transport)
 
         protocol.data_received(b"gemini://example.com/old\r\n")
@@ -190,14 +187,14 @@ class TestGeminiServerProtocol:
         assert b"30 gemini://example.com/new\r\n" in header_call[0]
         transport.close.assert_called_once()
 
-    def test_connection_lost(self):
+    def test_connection_lost(self, mocker):
         """Test connection_lost callback."""
 
         def handler(request):
             return GeminiResponse(status=20, meta="text/gemini", body="OK")
 
         protocol = GeminiServerProtocol(handler)
-        transport = create_mock_transport()
+        transport = self.create_mock_transport(mocker)
         protocol.connection_made(transport)
 
         # Call connection_lost

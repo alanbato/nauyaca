@@ -2,7 +2,6 @@
 
 import asyncio
 from pathlib import Path
-from unittest.mock import Mock
 
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
@@ -103,9 +102,7 @@ class TestTOFUDatabaseOperations:
         temp_tofu_db.trust("example.com", 1965, test_cert)
 
         # Verify different cert
-        is_valid, message = temp_tofu_db.verify(
-            "example.com", 1965, test_cert_different
-        )
+        is_valid, message = temp_tofu_db.verify("example.com", 1965, test_cert_different)
 
         assert is_valid is False
         assert message == "changed"
@@ -124,7 +121,7 @@ class TestGeminiClientProtocolCertificateExtraction:
     """Test certificate extraction from client protocol."""
 
     async def test_get_peer_certificate_with_valid_cert(
-        self, test_cert: x509.Certificate
+        self, mocker, test_cert: x509.Certificate
     ):
         """Test getting peer certificate from transport."""
         loop = asyncio.get_running_loop()
@@ -132,7 +129,7 @@ class TestGeminiClientProtocolCertificateExtraction:
         protocol = GeminiClientProtocol("gemini://test.example.com/", future)
 
         # Mock transport with certificate
-        mock_transport = Mock()
+        mock_transport = mocker.Mock()
         cert_der = test_cert.public_bytes(encoding=serialization.Encoding.DER)
         mock_transport.get_extra_info.return_value = cert_der
 
@@ -155,14 +152,14 @@ class TestGeminiClientProtocolCertificateExtraction:
 
         assert cert is None
 
-    async def test_get_peer_certificate_no_cert_data(self):
+    async def test_get_peer_certificate_no_cert_data(self, mocker):
         """Test getting peer certificate when no certificate data available."""
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         protocol = GeminiClientProtocol("gemini://test.example.com/", future)
 
         # Mock transport returning None (no certificate)
-        mock_transport = Mock()
+        mock_transport = mocker.Mock()
         mock_transport.get_extra_info.return_value = None
 
         protocol.transport = mock_transport
@@ -171,14 +168,14 @@ class TestGeminiClientProtocolCertificateExtraction:
 
         assert cert is None
 
-    async def test_get_peer_certificate_invalid_cert_data(self):
+    async def test_get_peer_certificate_invalid_cert_data(self, mocker):
         """Test getting peer certificate with invalid certificate data."""
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         protocol = GeminiClientProtocol("gemini://test.example.com/", future)
 
         # Mock transport returning invalid certificate data
-        mock_transport = Mock()
+        mock_transport = mocker.Mock()
         mock_transport.get_extra_info.return_value = b"invalid certificate data"
 
         protocol.transport = mock_transport
