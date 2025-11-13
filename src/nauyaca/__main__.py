@@ -112,12 +112,12 @@ def fetch(
     trust_on_first_use: bool = typer.Option(
         True,
         "--trust/--no-trust",
-        help="Enable Trust-On-First-Use certificate validation (recommended)",
+        help="Enable Trust-On-First-Use certificate validation (recommended for Gemini)",
     ),
     verify_ssl: bool = typer.Option(
-        True,
+        False,
         "--verify-ssl/--no-verify-ssl",
-        help="Verify SSL certificates (disable only for testing)",
+        help="Use CA-based SSL verification instead of TOFU (not recommended for Gemini)",
     ),
 ) -> None:
     """Fetch a Gemini resource and display it.
@@ -361,7 +361,10 @@ def version() -> None:
 
 
 # Create TOFU command group
-tofu_app = typer.Typer(help="Manage TOFU certificate database")
+tofu_app = typer.Typer(
+    help="Manage TOFU certificate database",
+    no_args_is_help=True,
+)
 app.add_typer(tofu_app, name="tofu")
 
 

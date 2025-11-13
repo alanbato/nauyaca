@@ -56,11 +56,11 @@ class GeminiClient:
             timeout: Request timeout in seconds. Default is 30 seconds.
             max_redirects: Maximum number of redirects to follow. Default is 5.
             ssl_context: Custom SSL context. If None, a default context will be
-                created based on verify_ssl setting.
-            verify_ssl: Whether to verify SSL certificates. Default is False
-                (testing mode). Set to True for production with TOFU.
+                created based on verify_ssl and trust_on_first_use settings.
+            verify_ssl: Whether to verify SSL certificates using CA validation.
+                Default is False. For Gemini, you should use TOFU instead.
             trust_on_first_use: Whether to use TOFU certificate validation.
-                Default is True. Only used if verify_ssl is True.
+                Default is True. This is the recommended mode for Gemini.
             tofu_db_path: Path to TOFU database. If None, uses default location
                 (~/.nauyaca/tofu.db).
         """
@@ -70,7 +70,7 @@ class GeminiClient:
         self.trust_on_first_use = trust_on_first_use
 
         # Initialize TOFU database if needed
-        if self.verify_ssl and self.trust_on_first_use:
+        if self.trust_on_first_use:
             self.tofu_db: TOFUDatabase | None = TOFUDatabase(tofu_db_path)
         else:
             self.tofu_db = None
@@ -78,13 +78,14 @@ class GeminiClient:
         # Create SSL context if not provided
         if ssl_context is None:
             if verify_ssl:
-                # For TOFU, we still need TLS but we'll do custom validation
+                # CA-based verification (not recommended for Gemini)
                 self.ssl_context = create_client_context(
                     verify_mode=ssl.CERT_REQUIRED,
                     check_hostname=True,
                 )
             else:
-                # Testing mode - accept all certificates
+                # TOFU mode or testing mode - accept all certificates
+                # TOFU validation happens after connection is established
                 self.ssl_context = create_client_context(
                     verify_mode=ssl.CERT_NONE,
                     check_hostname=False,
@@ -135,9 +136,7 @@ class GeminiClient:
 
         # Fetch with redirect following if enabled
         if follow_redirects:
-            return await self._fetch_with_redirects(
-                url, max_redirects=self.max_redirects
-            )
+            return await self._fetch_with_redirects(url, max_redirects=self.max_redirects)
         else:
             return await self._fetch_single(url)
 
