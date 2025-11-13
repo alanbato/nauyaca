@@ -7,9 +7,14 @@ the stored fingerprints.
 """
 
 import datetime
+import re
 import sqlite3
+import tomllib
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
+import tomli_w
 from cryptography import x509
 
 from .certificates import get_certificate_fingerprint
@@ -246,6 +251,181 @@ class TOFUDatabase:
             return None
 
         return dict(row)
+
+    def export_toml(self, file_path: Path) -> int:
+        """Export the TOFU database to a TOML file.
+
+        Args:
+            file_path: Path to the output TOML file.
+
+        Returns:
+            Number of hosts exported.
+
+        Raises:
+            IOError: If the file cannot be written.
+        """
+        hosts = self.list_hosts()
+
+        # Build TOML structure
+        data: dict[str, Any] = {
+            "_metadata": {
+                "exported_at": datetime.datetime.now(datetime.UTC).isoformat(),  # type: ignore[attr-defined]
+                "version": "1.0",
+            },
+            "hosts": {},
+        }
+
+        for host in hosts:
+            key = f"{host['hostname']}:{host['port']}"
+            data["hosts"][key] = {
+                "hostname": host["hostname"],
+                "port": int(host["port"]),
+                "fingerprint": host["fingerprint"],
+                "first_seen": host["first_seen"],
+                "last_seen": host["last_seen"],
+            }
+
+        # Write TOML file
+        with open(file_path, "wb") as f:
+            tomli_w.dump(data, f)
+
+        return len(hosts)
+
+    def import_toml(
+        self,
+        file_path: Path,
+        merge: bool = True,
+        on_conflict: Callable[[str, int, str, str], bool] | None = None,
+    ) -> tuple[int, int, int]:
+        """Import hosts from a TOML file into the TOFU database.
+
+        Args:
+            file_path: Path to the input TOML file.
+            merge: If True, merge with existing entries. If False, replace all.
+            on_conflict: Callback for resolving fingerprint conflicts.
+                Called with (hostname, port, old_fingerprint, new_fingerprint).
+                Should return True to update, False to skip.
+                If None, conflicts are skipped.
+
+        Returns:
+            Tuple of (added_count, updated_count, skipped_count).
+
+        Raises:
+            FileNotFoundError: If the TOML file doesn't exist.
+            ValueError: If the TOML structure is invalid.
+        """
+        if not file_path.exists():
+            raise FileNotFoundError(f"TOML file not found: {file_path}")
+
+        # Load TOML file
+        with open(file_path, "rb") as f:
+            data = tomllib.load(f)
+
+        # Validate structure
+        if "hosts" not in data:
+            raise ValueError("Invalid TOML: missing 'hosts' section")
+
+        if not isinstance(data["hosts"], dict):
+            raise ValueError("Invalid TOML: 'hosts' must be a table")
+
+        # Clear database if not merging
+        if not merge:
+            self.clear()
+
+        added_count = 0
+        updated_count = 0
+        skipped_count = 0
+
+        conn = self._get_connection()
+        cursor = conn.cursor()
+
+        for key, host_data in data["hosts"].items():
+            # Validate required fields
+            required_fields = [
+                "hostname",
+                "port",
+                "fingerprint",
+                "first_seen",
+                "last_seen",
+            ]
+            for field in required_fields:
+                if field not in host_data:
+                    raise ValueError(
+                        f"Invalid TOML: host '{key}' missing required field '{field}'"
+                    )
+
+            hostname = host_data["hostname"]
+            port = host_data["port"]
+            fingerprint = host_data["fingerprint"]
+            first_seen = host_data["first_seen"]
+
+            # Validate port
+            if not isinstance(port, int) or not (1 <= port <= 65535):
+                raise ValueError(f"Invalid TOML: host '{key}' has invalid port: {port}")
+
+            # Validate fingerprint format
+            if not self._validate_fingerprint(fingerprint):
+                raise ValueError(
+                    f"Invalid TOML: host '{key}' "
+                    f"has invalid fingerprint format: {fingerprint}"
+                )
+
+            # Check if host already exists
+            existing = self.get_host_info(hostname, port)
+
+            if existing is None:
+                # New host - add it
+                now = datetime.datetime.now(datetime.UTC).isoformat()  # type: ignore[attr-defined]
+                cursor.execute(
+                    """
+                    INSERT INTO known_hosts
+                    (hostname, port, fingerprint, first_seen, last_seen)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (hostname, port, fingerprint, first_seen, now),
+                )
+                added_count += 1
+            elif existing["fingerprint"] == fingerprint:
+                # Same fingerprint - skip
+                skipped_count += 1
+            else:
+                # Fingerprint mismatch - check if we should update
+                should_update = False
+                if on_conflict:
+                    should_update = on_conflict(
+                        hostname, port, existing["fingerprint"], fingerprint
+                    )
+
+                if should_update:
+                    # Update with new fingerprint, preserve first_seen, update last_seen
+                    now = datetime.datetime.now(datetime.UTC).isoformat()  # type: ignore[attr-defined]
+                    cursor.execute(
+                        """
+                        UPDATE known_hosts
+                        SET fingerprint = ?, last_seen = ?
+                        WHERE hostname = ? AND port = ?
+                        """,
+                        (fingerprint, now, hostname, port),
+                    )
+                    updated_count += 1
+                else:
+                    skipped_count += 1
+
+        conn.commit()
+        return (added_count, updated_count, skipped_count)
+
+    def _validate_fingerprint(self, fingerprint: str) -> bool:
+        """Validate that a fingerprint matches the expected format.
+
+        Args:
+            fingerprint: The fingerprint string to validate.
+
+        Returns:
+            True if valid, False otherwise.
+        """
+        # Expected format: sha256:64_hex_chars
+        pattern = r"^sha256:[0-9a-f]{64}$"
+        return bool(re.match(pattern, fingerprint.lower()))
 
     def close(self) -> None:
         """Close the database connection."""

@@ -115,13 +115,13 @@ def get_certificate_fingerprint(
         algorithm: Hash algorithm to use (default: sha256).
 
     Returns:
-        Hex-encoded fingerprint string.
+        Fingerprint string in format "algorithm:hexdigest".
 
     Example:
         >>> cert = load_certificate(Path("cert.pem"))
         >>> fingerprint = get_certificate_fingerprint(cert)
         >>> print(fingerprint)
-        'a1b2c3d4e5f6...'
+        'sha256:a1b2c3d4e5f6...'
     """
     cert_der = cert.public_bytes(serialization.Encoding.DER)
 
@@ -132,7 +132,7 @@ def get_certificate_fingerprint(
     else:
         raise ValueError(f"Unsupported algorithm: {algorithm}")
 
-    return digest
+    return f"{algorithm}:{digest}"
 
 
 def get_certificate_fingerprint_from_path(
@@ -206,14 +206,18 @@ def get_certificate_info(cert: x509.Certificate) -> dict[str, str]:
     Returns:
         Dictionary containing certificate information.
     """
+    # Get full fingerprints with algorithm prefix
+    fp_sha256 = get_certificate_fingerprint(cert, "sha256")
+    fp_sha1 = get_certificate_fingerprint(cert, "sha1")
+
     info = {
         "subject": cert.subject.rfc4514_string(),
         "issuer": cert.issuer.rfc4514_string(),
         "serial_number": str(cert.serial_number),
         "not_before": cert.not_valid_before_utc.isoformat(),
         "not_after": cert.not_valid_after_utc.isoformat(),
-        "fingerprint_sha256": get_certificate_fingerprint(cert, "sha256"),
-        "fingerprint_sha1": get_certificate_fingerprint(cert, "sha1"),
+        "fingerprint_sha256": fp_sha256,
+        "fingerprint_sha1": fp_sha1,
         "expired": str(is_certificate_expired(cert)),
     }
 

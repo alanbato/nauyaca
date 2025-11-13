@@ -519,6 +519,134 @@ def tofu_info(
         console.print(table)
 
 
+@tofu_app.command("export")
+def tofu_export(
+    file: Path = typer.Argument(..., help="Output TOML file path"),
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing file"),
+) -> None:
+    """Export TOFU database to a TOML file.
+
+    This creates a human-readable backup of your trusted hosts that can be
+    edited, shared, or imported on another machine.
+
+    Examples:
+
+        # Export to a file
+        $ nauyaca tofu export backup.toml
+
+        # Overwrite existing file
+        $ nauyaca tofu export backup.toml --force
+    """
+    from .security.tofu import TOFUDatabase
+
+    # Check if file exists
+    if file.exists() and not force:
+        error_console.print(
+            f"[red]Error: File {file} already exists. Use --force to overwrite.[/]"
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        with TOFUDatabase() as db:
+            count = db.export_toml(file)
+            console.print(f"[green]Exported {count} hosts to {file}[/]")
+    except Exception as e:
+        error_console.print(f"[red]Error exporting database: {e}[/]")
+        raise typer.Exit(code=1) from e
+
+
+@tofu_app.command("import")
+def tofu_import(
+    file: Path = typer.Argument(
+        ..., help="Input TOML file path", exists=True, file_okay=True, dir_okay=False
+    ),
+    replace: bool = typer.Option(
+        False, "--replace", help="Replace all existing entries (default: merge)"
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Skip all confirmations and auto-accept conflicts"
+    ),
+) -> None:
+    """Import TOFU database from a TOML file.
+
+    By default, entries are merged with existing database. Use --replace to
+    clear the database first. When fingerprint conflicts occur, you'll be
+    prompted unless --force is used.
+
+    Examples:
+
+        # Import and merge with existing database
+        $ nauyaca tofu import backup.toml
+
+        # Replace entire database
+        $ nauyaca tofu import backup.toml --replace
+
+        # Auto-accept all conflicts
+        $ nauyaca tofu import backup.toml --force
+    """
+    from .security.tofu import TOFUDatabase
+
+    # Confirm replace mode if not forced
+    if replace and not force:
+        confirm = typer.confirm(
+            "[bold yellow]Replace mode will clear all existing entries. Continue?[/]"
+        )
+        if not confirm:
+            raise typer.Abort()
+
+    # Create conflict handler
+    def conflict_handler(hostname: str, port: int, old_fp: str, new_fp: str) -> bool:
+        """Handle fingerprint conflicts."""
+        if force:
+            # Auto-accept in force mode
+            return True
+
+        # Show conflict to user
+        console.print(f"\n[bold yellow]Fingerprint conflict for {hostname}:{port}[/]")
+
+        conflict_table = Table(show_header=True, box=None)
+        conflict_table.add_column("Source", style="bold")
+        conflict_table.add_column("Fingerprint")
+
+        conflict_table.add_row("Current (database)", old_fp[:32] + "...")
+        conflict_table.add_row("New (TOML file)", new_fp[:32] + "...")
+
+        console.print(conflict_table)
+
+        # Prompt user
+        accept = typer.confirm("Accept new fingerprint?", default=False)
+        return accept
+
+    try:
+        with TOFUDatabase() as db:
+            added, updated, skipped = db.import_toml(
+                file, merge=not replace, on_conflict=conflict_handler
+            )
+
+            # Show summary
+            console.print("\n[bold green]Import complete![/]")
+
+            summary_table = Table(show_header=False, box=None)
+            summary_table.add_column("Metric", style="bold cyan")
+            summary_table.add_column("Count", justify="right")
+
+            summary_table.add_row("Added", str(added))
+            summary_table.add_row("Updated", str(updated))
+            summary_table.add_row("Skipped", str(skipped))
+
+            console.print(summary_table)
+
+    except FileNotFoundError as e:
+        error_console.print(f"[red]Error: {e}[/]")
+        raise typer.Exit(code=1) from e
+    except ValueError as e:
+        error_console.print(f"[red]Invalid TOML file: {e}[/]")
+        raise typer.Exit(code=1) from e
+    except Exception as e:
+        error_console.print(f"[red]Error importing database: {e}[/]")
+        raise typer.Exit(code=1) from e
+
+
 def main() -> None:
     """Main entry point for the CLI."""
     app()
