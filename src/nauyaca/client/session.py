@@ -103,9 +103,7 @@ class GeminiClient:
         exc_tb: object,
     ) -> None:
         """Async context manager exit."""
-        # Close TOFU database if open
-        if self.tofu_db:
-            self.tofu_db.close()
+        pass
 
     async def fetch(
         self,

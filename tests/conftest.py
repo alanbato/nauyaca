@@ -43,7 +43,6 @@ def temp_tofu_db(tmp_path: Path) -> TOFUDatabase:
 
     yield db
 
-    db.close()
     if db_path.exists():
         db_path.unlink()
 

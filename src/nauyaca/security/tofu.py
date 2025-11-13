@@ -11,6 +11,7 @@ import re
 import sqlite3
 import tomllib
 from collections.abc import Callable
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -42,39 +43,43 @@ class TOFUDatabase:
             db_path = nauyaca_dir / "tofu.db"
 
         self.db_path = db_path
-        self._conn: sqlite3.Connection | None = None
         self._initialize_db()
 
     def _initialize_db(self) -> None:
         """Create the database schema if it doesn't exist."""
-        conn = self._get_connection()
-        cursor = conn.cursor()
+        with self._connection() as conn:
+            cursor = conn.cursor()
 
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS known_hosts (
-                hostname TEXT NOT NULL,
-                port INTEGER NOT NULL,
-                fingerprint TEXT NOT NULL,
-                first_seen TEXT NOT NULL,
-                last_seen TEXT NOT NULL,
-                PRIMARY KEY (hostname, port)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS known_hosts (
+                    hostname TEXT NOT NULL,
+                    port INTEGER NOT NULL,
+                    fingerprint TEXT NOT NULL,
+                    first_seen TEXT NOT NULL,
+                    last_seen TEXT NOT NULL,
+                    PRIMARY KEY (hostname, port)
+                )
+                """
             )
-            """
-        )
 
-        conn.commit()
+            conn.commit()
 
-    def _get_connection(self) -> sqlite3.Connection:
-        """Get or create the database connection.
+    @contextmanager
+    def _connection(self):
+        """Context manager for database connections.
 
-        Returns:
-            Active SQLite connection.
+        Opens a new connection for each operation and ensures it's closed.
+
+        Yields:
+            Active SQLite connection with row_factory configured.
         """
-        if self._conn is None:
-            self._conn = sqlite3.connect(str(self.db_path))
-            self._conn.row_factory = sqlite3.Row
-        return self._conn
+        conn = sqlite3.connect(str(self.db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     def trust(self, hostname: str, port: int, cert: x509.Certificate) -> None:
         """Trust a certificate for a host.
@@ -90,38 +95,38 @@ class TOFUDatabase:
         fingerprint = get_certificate_fingerprint(cert)
         now = datetime.datetime.now(datetime.UTC).isoformat()  # type: ignore[attr-defined]
 
-        conn = self._get_connection()
-        cursor = conn.cursor()
+        with self._connection() as conn:
+            cursor = conn.cursor()
 
-        # Check if host already exists
-        cursor.execute(
-            "SELECT fingerprint FROM known_hosts WHERE hostname = ? AND port = ?",
-            (hostname, port),
-        )
-        row = cursor.fetchone()
-
-        if row is None:
-            # First time seeing this host
+            # Check if host already exists
             cursor.execute(
-                """
-                INSERT INTO known_hosts
-                (hostname, port, fingerprint, first_seen, last_seen)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (hostname, port, fingerprint, now, now),
+                "SELECT fingerprint FROM known_hosts WHERE hostname = ? AND port = ?",
+                (hostname, port),
             )
-        else:
-            # Update existing entry
-            cursor.execute(
-                """
-                UPDATE known_hosts
-                SET fingerprint = ?, last_seen = ?
-                WHERE hostname = ? AND port = ?
-                """,
-                (fingerprint, now, hostname, port),
-            )
+            row = cursor.fetchone()
 
-        conn.commit()
+            if row is None:
+                # First time seeing this host
+                cursor.execute(
+                    """
+                    INSERT INTO known_hosts
+                    (hostname, port, fingerprint, first_seen, last_seen)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (hostname, port, fingerprint, now, now),
+                )
+            else:
+                # Update existing entry
+                cursor.execute(
+                    """
+                    UPDATE known_hosts
+                    SET fingerprint = ?, last_seen = ?
+                    WHERE hostname = ? AND port = ?
+                    """,
+                    (fingerprint, now, hostname, port),
+                )
+
+            conn.commit()
 
     def verify(
         self, hostname: str, port: int, cert: x509.Certificate
@@ -141,33 +146,34 @@ class TOFUDatabase:
         """
         fingerprint = get_certificate_fingerprint(cert)
 
-        conn = self._get_connection()
-        cursor = conn.cursor()
+        with self._connection() as conn:
+            cursor = conn.cursor()
 
-        cursor.execute(
-            "SELECT fingerprint FROM known_hosts WHERE hostname = ? AND port = ?",
-            (hostname, port),
-        )
-        row = cursor.fetchone()
-
-        if row is None:
-            # First time seeing this host
-            return True, "first_use"
-
-        stored_fingerprint = row["fingerprint"]
-
-        if stored_fingerprint == fingerprint:
-            # Certificate matches - update last_seen
-            now = datetime.datetime.now(datetime.UTC).isoformat()  # type: ignore[attr-defined]
             cursor.execute(
-                "UPDATE known_hosts SET last_seen = ? WHERE hostname = ? AND port = ?",
-                (now, hostname, port),
+                "SELECT fingerprint FROM known_hosts WHERE hostname = ? AND port = ?",
+                (hostname, port),
             )
-            conn.commit()
-            return True, ""
+            row = cursor.fetchone()
 
-        # Certificate has changed
-        return False, "changed"
+            if row is None:
+                # First time seeing this host
+                return True, "first_use"
+
+            stored_fingerprint = row["fingerprint"]
+
+            if stored_fingerprint == fingerprint:
+                # Certificate matches - update last_seen
+                now = datetime.datetime.now(datetime.UTC).isoformat()  # type: ignore[attr-defined]
+                cursor.execute(
+                    "UPDATE known_hosts SET last_seen = ? "
+                    "WHERE hostname = ? AND port = ?",
+                    (now, hostname, port),
+                )
+                conn.commit()
+                return True, ""
+
+            # Certificate has changed
+            return False, "changed"
 
     def revoke(self, hostname: str, port: int) -> bool:
         """Remove a host from the TOFU database.
@@ -179,16 +185,16 @@ class TOFUDatabase:
         Returns:
             True if the host was removed, False if it wasn't in the database.
         """
-        conn = self._get_connection()
-        cursor = conn.cursor()
+        with self._connection() as conn:
+            cursor = conn.cursor()
 
-        cursor.execute(
-            "DELETE FROM known_hosts WHERE hostname = ? AND port = ?",
-            (hostname, port),
-        )
-        conn.commit()
+            cursor.execute(
+                "DELETE FROM known_hosts WHERE hostname = ? AND port = ?",
+                (hostname, port),
+            )
+            conn.commit()
 
-        return cursor.rowcount > 0
+            return cursor.rowcount > 0
 
     def list_hosts(self) -> list[dict[str, str]]:
         """List all known hosts in the database.
@@ -196,19 +202,19 @@ class TOFUDatabase:
         Returns:
             List of dictionaries containing host information.
         """
-        conn = self._get_connection()
-        cursor = conn.cursor()
+        with self._connection() as conn:
+            cursor = conn.cursor()
 
-        cursor.execute(
-            """
-            SELECT hostname, port, fingerprint, first_seen, last_seen
-            FROM known_hosts
-            ORDER BY last_seen DESC
-            """
-        )
+            cursor.execute(
+                """
+                SELECT hostname, port, fingerprint, first_seen, last_seen
+                FROM known_hosts
+                ORDER BY last_seen DESC
+                """
+            )
 
-        rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
 
     def clear(self) -> int:
         """Clear all entries from the TOFU database.
@@ -216,13 +222,13 @@ class TOFUDatabase:
         Returns:
             Number of entries removed.
         """
-        conn = self._get_connection()
-        cursor = conn.cursor()
+        with self._connection() as conn:
+            cursor = conn.cursor()
 
-        cursor.execute("DELETE FROM known_hosts")
-        conn.commit()
+            cursor.execute("DELETE FROM known_hosts")
+            conn.commit()
 
-        return cursor.rowcount
+            return cursor.rowcount
 
     def get_host_info(self, hostname: str, port: int) -> dict[str, str] | None:
         """Get information about a specific host.
@@ -234,23 +240,23 @@ class TOFUDatabase:
         Returns:
             Dictionary containing host information, or None if not found.
         """
-        conn = self._get_connection()
-        cursor = conn.cursor()
+        with self._connection() as conn:
+            cursor = conn.cursor()
 
-        cursor.execute(
-            """
-            SELECT hostname, port, fingerprint, first_seen, last_seen
-            FROM known_hosts
-            WHERE hostname = ? AND port = ?
-            """,
-            (hostname, port),
-        )
+            cursor.execute(
+                """
+                SELECT hostname, port, fingerprint, first_seen, last_seen
+                FROM known_hosts
+                WHERE hostname = ? AND port = ?
+                """,
+                (hostname, port),
+            )
 
-        row = cursor.fetchone()
-        if row is None:
-            return None
+            row = cursor.fetchone()
+            if row is None:
+                return None
 
-        return dict(row)
+            return dict(row)
 
     def export_toml(self, file_path: Path) -> int:
         """Export the TOFU database to a TOML file.
@@ -336,83 +342,87 @@ class TOFUDatabase:
         updated_count = 0
         skipped_count = 0
 
-        conn = self._get_connection()
-        cursor = conn.cursor()
+        with self._connection() as conn:
+            cursor = conn.cursor()
 
-        for key, host_data in data["hosts"].items():
-            # Validate required fields
-            required_fields = [
-                "hostname",
-                "port",
-                "fingerprint",
-                "first_seen",
-                "last_seen",
-            ]
-            for field in required_fields:
-                if field not in host_data:
+            for key, host_data in data["hosts"].items():
+                # Validate required fields
+                required_fields = [
+                    "hostname",
+                    "port",
+                    "fingerprint",
+                    "first_seen",
+                    "last_seen",
+                ]
+                for field in required_fields:
+                    if field not in host_data:
+                        raise ValueError(
+                            f"Invalid TOML: host '{key}'"
+                            f" missing required field '{field}'"
+                        )
+
+                hostname = host_data["hostname"]
+                port = host_data["port"]
+                fingerprint = host_data["fingerprint"]
+                first_seen = host_data["first_seen"]
+
+                # Validate port
+                if not isinstance(port, int) or not (1 <= port <= 65535):
                     raise ValueError(
-                        f"Invalid TOML: host '{key}' missing required field '{field}'"
+                        f"Invalid TOML: host '{key}' has invalid port: {port}"
                     )
 
-            hostname = host_data["hostname"]
-            port = host_data["port"]
-            fingerprint = host_data["fingerprint"]
-            first_seen = host_data["first_seen"]
-
-            # Validate port
-            if not isinstance(port, int) or not (1 <= port <= 65535):
-                raise ValueError(f"Invalid TOML: host '{key}' has invalid port: {port}")
-
-            # Validate fingerprint format
-            if not self._validate_fingerprint(fingerprint):
-                raise ValueError(
-                    f"Invalid TOML: host '{key}' "
-                    f"has invalid fingerprint format: {fingerprint}"
-                )
-
-            # Check if host already exists
-            existing = self.get_host_info(hostname, port)
-
-            if existing is None:
-                # New host - add it
-                now = datetime.datetime.now(datetime.UTC).isoformat()  # type: ignore[attr-defined]
-                cursor.execute(
-                    """
-                    INSERT INTO known_hosts
-                    (hostname, port, fingerprint, first_seen, last_seen)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (hostname, port, fingerprint, first_seen, now),
-                )
-                added_count += 1
-            elif existing["fingerprint"] == fingerprint:
-                # Same fingerprint - skip
-                skipped_count += 1
-            else:
-                # Fingerprint mismatch - check if we should update
-                should_update = False
-                if on_conflict:
-                    should_update = on_conflict(
-                        hostname, port, existing["fingerprint"], fingerprint
+                # Validate fingerprint format
+                if not self._validate_fingerprint(fingerprint):
+                    raise ValueError(
+                        f"Invalid TOML: host '{key}' "
+                        f"has invalid fingerprint format: {fingerprint}"
                     )
 
-                if should_update:
-                    # Update with new fingerprint, preserve first_seen, update last_seen
+                # Check if host already exists
+                existing = self.get_host_info(hostname, port)
+
+                if existing is None:
+                    # New host - add it
                     now = datetime.datetime.now(datetime.UTC).isoformat()  # type: ignore[attr-defined]
                     cursor.execute(
                         """
-                        UPDATE known_hosts
-                        SET fingerprint = ?, last_seen = ?
-                        WHERE hostname = ? AND port = ?
+                        INSERT INTO known_hosts
+                        (hostname, port, fingerprint, first_seen, last_seen)
+                        VALUES (?, ?, ?, ?, ?)
                         """,
-                        (fingerprint, now, hostname, port),
+                        (hostname, port, fingerprint, first_seen, now),
                     )
-                    updated_count += 1
-                else:
+                    added_count += 1
+                elif existing["fingerprint"] == fingerprint:
+                    # Same fingerprint - skip
                     skipped_count += 1
+                else:
+                    # Fingerprint mismatch - check if we should update
+                    should_update = False
+                    if on_conflict:
+                        should_update = on_conflict(
+                            hostname, port, existing["fingerprint"], fingerprint
+                        )
 
-        conn.commit()
-        return (added_count, updated_count, skipped_count)
+                    if should_update:
+                        # Update with new fingerprint
+                        # Preserve first_seen, update last_seen
+                        now = datetime.datetime.now(datetime.UTC).isoformat()  # type: ignore[attr-defined]
+                        cursor.execute(
+                            """
+                            UPDATE known_hosts
+                            SET fingerprint = ?, last_seen = ?
+                            WHERE hostname = ? AND port = ?
+                            """,
+                            (fingerprint, now, hostname, port),
+                        )
+                        updated_count += 1
+                    else:
+                        skipped_count += 1
+
+            conn.commit()
+            return (added_count, updated_count, skipped_count)
 
     def _validate_fingerprint(self, fingerprint: str) -> bool:
         """Validate that a fingerprint matches the expected format.
@@ -426,20 +436,6 @@ class TOFUDatabase:
         # Expected format: sha256:64_hex_chars
         pattern = r"^sha256:[0-9a-f]{64}$"
         return bool(re.match(pattern, fingerprint.lower()))
-
-    def close(self) -> None:
-        """Close the database connection."""
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
-
-    def __enter__(self) -> "TOFUDatabase":
-        """Context manager entry."""
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore[no-untyped-def]
-        """Context manager exit."""
-        self.close()
 
 
 class CertificateChangedError(Exception):

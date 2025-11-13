@@ -28,9 +28,6 @@ class TestGeminiClientTOFU:
         assert client.tofu_db is not None
         assert isinstance(client.tofu_db, TOFUDatabase)
 
-        # Clean up
-        client.tofu_db.close()
-
     def test_client_initialization_with_tofu_disabled(self):
         """Test client initialization with TOFU disabled."""
         client = GeminiClient(

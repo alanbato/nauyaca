@@ -35,9 +35,9 @@ class TestGeminiClient:
 
         assert client.ssl_context is custom_context
 
-    def test_client_with_verify_ssl_enabled(self):
+    def test_client_with_verify_ssl_enabled(self, tmp_path):
         """Test client initialization with SSL verification enabled."""
-        client = GeminiClient(verify_ssl=True)
+        client = GeminiClient(verify_ssl=True, tofu_db_path=tmp_path / "tofu.db")
 
         assert client.ssl_context is not None
         # Context should be configured for verification
@@ -56,15 +56,14 @@ class TestGeminiClient:
 
     async def test_fetch_connection_timeout(self):
         """Test fetch handles connection timeout."""
-        client = GeminiClient(timeout=0.1)
+        async with GeminiClient(timeout=0.1) as client:
+            # Mock _fetch_single to raise timeout error (simulating connection timeout)
+            async def timeout_fetch(url):
+                raise TimeoutError("Connection timeout")
 
-        # Mock _fetch_single to raise timeout error (simulating connection timeout)
-        async def timeout_fetch(url):
-            raise TimeoutError("Connection timeout")
-
-        with patch.object(client, "_fetch_single", new=timeout_fetch):
-            with pytest.raises(TimeoutError, match="Connection timeout"):
-                await client.fetch("gemini://example.com/")
+            with patch.object(client, "_fetch_single", new=timeout_fetch):
+                with pytest.raises(TimeoutError, match="Connection timeout"):
+                    await client.fetch("gemini://example.com/")
 
     async def test_fetch_connection_refused(self):
         """Test fetch handles connection refused."""

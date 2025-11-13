@@ -46,6 +46,7 @@ dev = [
     "pytest-timeout>=2.1.0",
     "hypothesis>=6.147.0",
     "faker>=38.0.0",
+    "pytest-randomly>=4.0.1",
 ]
 
 

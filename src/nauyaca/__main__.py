@@ -376,30 +376,30 @@ def tofu_list() -> None:
     """
     from .security.tofu import TOFUDatabase
 
-    with TOFUDatabase() as db:
-        hosts = db.list_hosts()
+    db = TOFUDatabase()
+    hosts = db.list_hosts()
 
-        if not hosts:
-            console.print("[yellow]No known hosts in TOFU database.[/]")
-            return
+    if not hosts:
+        console.print("[yellow]No known hosts in TOFU database.[/]")
+        return
 
-        table = Table(title="Known Hosts (TOFU)")
-        table.add_column("Hostname", style="cyan")
-        table.add_column("Port", justify="right")
-        table.add_column("Fingerprint", style="dim")
-        table.add_column("First Seen")
-        table.add_column("Last Seen")
+    table = Table(title="Known Hosts (TOFU)")
+    table.add_column("Hostname", style="cyan")
+    table.add_column("Port", justify="right")
+    table.add_column("Fingerprint", style="dim")
+    table.add_column("First Seen")
+    table.add_column("Last Seen")
 
-        for host in hosts:
-            table.add_row(
-                host["hostname"],
-                str(host["port"]),
-                host["fingerprint"][:16] + "...",
-                host["first_seen"][:10],
-                host["last_seen"][:10],
-            )
+    for host in hosts:
+        table.add_row(
+            host["hostname"],
+            str(host["port"]),
+            host["fingerprint"][:16] + "...",
+            host["first_seen"][:10],
+            host["last_seen"][:10],
+        )
 
-        console.print(table)
+    console.print(table)
 
 
 @tofu_app.command("revoke")
@@ -419,11 +419,11 @@ def tofu_revoke(
     """
     from .security.tofu import TOFUDatabase
 
-    with TOFUDatabase() as db:
-        if db.revoke(hostname, port):
-            console.print(f"[green]Revoked certificate for {hostname}:{port}[/]")
-        else:
-            console.print(f"[yellow]Host {hostname}:{port} not in database[/]")
+    db = TOFUDatabase()
+    if db.revoke(hostname, port):
+        console.print(f"[green]Revoked certificate for {hostname}:{port}[/]")
+    else:
+        console.print(f"[yellow]Host {hostname}:{port} not in database[/]")
 
 
 @tofu_app.command("trust")
@@ -479,11 +479,11 @@ def tofu_trust(
                     cert = protocol.get_peer_certificate()
                     if cert:
                         # Add to TOFU database
-                        with TOFUDatabase() as db:
-                            db.trust(hostname, port, cert)
-                            console.print(
-                                f"[green]Certificate trusted for {hostname}:{port}[/]"
-                            )
+                        db = TOFUDatabase()
+                        db.trust(hostname, port, cert)
+                        console.print(
+                            f"[green]Certificate trusted for {hostname}:{port}[/]"
+                        )
                     else:
                         error_console.print(
                             "[red]Error: Could not retrieve certificate[/]"
@@ -520,9 +520,9 @@ def tofu_clear(
         if not confirm:
             raise typer.Abort()
 
-    with TOFUDatabase() as db:
-        count = db.clear()
-        console.print(f"[green]Cleared {count} entries from TOFU database[/]")
+    db = TOFUDatabase()
+    count = db.clear()
+    console.print(f"[green]Cleared {count} entries from TOFU database[/]")
 
 
 @tofu_app.command("info")
@@ -542,24 +542,24 @@ def tofu_info(
     """
     from .security.tofu import TOFUDatabase
 
-    with TOFUDatabase() as db:
-        info = db.get_host_info(hostname, port)
+    db = TOFUDatabase()
+    info = db.get_host_info(hostname, port)
 
-        if info is None:
-            console.print(f"[yellow]Host {hostname}:{port} not in database[/]")
-            raise typer.Exit(code=1)
+    if info is None:
+        console.print(f"[yellow]Host {hostname}:{port} not in database[/]")
+        raise typer.Exit(code=1)
 
-        table = Table(show_header=False, box=None)
-        table.add_column("Key", style="bold cyan")
-        table.add_column("Value")
+    table = Table(show_header=False, box=None)
+    table.add_column("Key", style="bold cyan")
+    table.add_column("Value")
 
-        table.add_row("Hostname", info["hostname"])
-        table.add_row("Port", str(info["port"]))
-        table.add_row("Fingerprint (SHA-256)", info["fingerprint"])
-        table.add_row("First Seen", info["first_seen"])
-        table.add_row("Last Seen", info["last_seen"])
+    table.add_row("Hostname", info["hostname"])
+    table.add_row("Port", str(info["port"]))
+    table.add_row("Fingerprint (SHA-256)", info["fingerprint"])
+    table.add_row("First Seen", info["first_seen"])
+    table.add_row("Last Seen", info["last_seen"])
 
-        console.print(table)
+    console.print(table)
 
 
 @tofu_app.command("export")
@@ -590,9 +590,9 @@ def tofu_export(
         raise typer.Exit(code=1)
 
     try:
-        with TOFUDatabase() as db:
-            count = db.export_toml(file)
-            console.print(f"[green]Exported {count} hosts to {file}[/]")
+        db = TOFUDatabase()
+        count = db.export_toml(file)
+        console.print(f"[green]Exported {count} hosts to {file}[/]")
     except Exception as e:
         error_console.print(f"[red]Error exporting database: {e}[/]")
         raise typer.Exit(code=1) from e
@@ -661,23 +661,23 @@ def tofu_import(
         return accept
 
     try:
-        with TOFUDatabase() as db:
-            added, updated, skipped = db.import_toml(
-                file, merge=not replace, on_conflict=conflict_handler
-            )
+        db = TOFUDatabase()
+        added, updated, skipped = db.import_toml(
+            file, merge=not replace, on_conflict=conflict_handler
+        )
 
-            # Show summary
-            console.print("\n[bold green]Import complete![/]")
+        # Show summary
+        console.print("\n[bold green]Import complete![/]")
 
-            summary_table = Table(show_header=False, box=None)
-            summary_table.add_column("Metric", style="bold cyan")
-            summary_table.add_column("Count", justify="right")
+        summary_table = Table(show_header=False, box=None)
+        summary_table.add_column("Metric", style="bold cyan")
+        summary_table.add_column("Count", justify="right")
 
-            summary_table.add_row("Added", str(added))
-            summary_table.add_row("Updated", str(updated))
-            summary_table.add_row("Skipped", str(skipped))
+        summary_table.add_row("Added", str(added))
+        summary_table.add_row("Updated", str(updated))
+        summary_table.add_row("Skipped", str(skipped))
 
-            console.print(summary_table)
+        console.print(summary_table)
 
     except FileNotFoundError as e:
         error_console.print(f"[red]Error: {e}[/]")

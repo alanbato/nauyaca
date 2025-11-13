@@ -16,8 +16,8 @@ class TestTOFUExport:
         db_path = tmp_path / "tofu.db"
         export_path = tmp_path / "export.toml"
 
-        with TOFUDatabase(db_path) as db:
-            count = db.export_toml(export_path)
+        db = TOFUDatabase(db_path)
+        count = db.export_toml(export_path)
 
         assert count == 0
         assert export_path.exists()
@@ -38,9 +38,9 @@ class TestTOFUExport:
         export_path = tmp_path / "export.toml"
 
         # Add a host
-        with TOFUDatabase(db_path) as db:
-            db.trust("example.com", 1965, test_cert)
-            count = db.export_toml(export_path)
+        db = TOFUDatabase(db_path)
+        db.trust("example.com", 1965, test_cert)
+        count = db.export_toml(export_path)
 
         assert count == 1
         assert export_path.exists()
@@ -73,12 +73,12 @@ class TestTOFUExport:
         export_path = tmp_path / "export.toml"
 
         # Add multiple hosts
-        with TOFUDatabase(db_path) as db:
-            db.trust("example.com", 1965, test_cert)
-            db.trust("test.org", 1965, test_cert_different)
-            db.trust("example.com", 300, test_cert)  # Same host, different port
+        db = TOFUDatabase(db_path)
+        db.trust("example.com", 1965, test_cert)
+        db.trust("test.org", 1965, test_cert_different)
+        db.trust("example.com", 300, test_cert)  # Same host, different port
 
-            count = db.export_toml(export_path)
+        count = db.export_toml(export_path)
 
         assert count == 3
 
@@ -121,18 +121,18 @@ class TestTOFUImport:
             tomli_w.dump(data, f)
 
         # Import
-        with TOFUDatabase(db_path) as db:
-            added, updated, skipped = db.import_toml(import_path)
+        db = TOFUDatabase(db_path)
+        added, updated, skipped = db.import_toml(import_path)
 
         assert added == 1
         assert updated == 0
         assert skipped == 0
 
         # Verify import
-        with TOFUDatabase(db_path) as db:
-            hosts = db.list_hosts()
-            assert len(hosts) == 1
-            assert hosts[0]["hostname"] == "example.com"
+        db = TOFUDatabase(db_path)
+        hosts = db.list_hosts()
+        assert len(hosts) == 1
+        assert hosts[0]["hostname"] == "example.com"
 
     def test_import_with_same_fingerprint_skips(
         self, tmp_path: Path, test_cert: x509.Certificate
@@ -142,9 +142,9 @@ class TestTOFUImport:
         import_path = tmp_path / "import.toml"
 
         # Add host to database
-        with TOFUDatabase(db_path) as db:
-            db.trust("example.com", 1965, test_cert)
-            info = db.get_host_info("example.com", 1965)
+        db = TOFUDatabase(db_path)
+        db.trust("example.com", 1965, test_cert)
+        info = db.get_host_info("example.com", 1965)
 
         # Create TOML with same fingerprint
         import tomli_w
@@ -165,8 +165,8 @@ class TestTOFUImport:
             tomli_w.dump(data, f)
 
         # Import
-        with TOFUDatabase(db_path) as db:
-            added, updated, skipped = db.import_toml(import_path)
+        db = TOFUDatabase(db_path)
+        added, updated, skipped = db.import_toml(import_path)
 
         assert added == 0
         assert updated == 0
@@ -180,8 +180,8 @@ class TestTOFUImport:
         import_path = tmp_path / "import.toml"
 
         # Add host to database
-        with TOFUDatabase(db_path) as db:
-            db.trust("example.com", 1965, test_cert)
+        db = TOFUDatabase(db_path)
+        db.trust("example.com", 1965, test_cert)
 
         # Create TOML with different fingerprint using Faker
         import tomli_w
@@ -205,21 +205,19 @@ class TestTOFUImport:
         def accept_all(hostname: str, port: int, old_fp: str, new_fp: str) -> bool:
             return True
 
-        with TOFUDatabase(db_path) as db:
-            added, updated, skipped = db.import_toml(
-                import_path, on_conflict=accept_all
-            )
+        db = TOFUDatabase(db_path)
+        added, updated, skipped = db.import_toml(import_path, on_conflict=accept_all)
 
         assert added == 0
         assert updated == 1
         assert skipped == 0
 
         # Verify fingerprint was updated to the Faker-generated one
-        with TOFUDatabase(db_path) as db:
-            info = db.get_host_info("example.com", 1965)
-            # Verify fingerprint format (can't check exact value with Faker)
-            assert info["fingerprint"].startswith("sha256:")
-            assert len(info["fingerprint"]) == 71  # "sha256:" (7) + 64 hex chars
+        db = TOFUDatabase(db_path)
+        info = db.get_host_info("example.com", 1965)
+        # Verify fingerprint format (can't check exact value with Faker)
+        assert info["fingerprint"].startswith("sha256:")
+        assert len(info["fingerprint"]) == 71  # "sha256:" (7) + 64 hex chars
 
     def test_import_conflict_reject(
         self, tmp_path: Path, test_cert: x509.Certificate, faker
@@ -229,9 +227,9 @@ class TestTOFUImport:
         import_path = tmp_path / "import.toml"
 
         # Add host to database
-        with TOFUDatabase(db_path) as db:
-            db.trust("example.com", 1965, test_cert)
-            original_fp = db.get_host_info("example.com", 1965)["fingerprint"]
+        db = TOFUDatabase(db_path)
+        db.trust("example.com", 1965, test_cert)
+        original_fp = db.get_host_info("example.com", 1965)["fingerprint"]
 
         # Create TOML with different fingerprint using Faker
         import tomli_w
@@ -255,19 +253,17 @@ class TestTOFUImport:
         def reject_all(hostname: str, port: int, old_fp: str, new_fp: str) -> bool:
             return False
 
-        with TOFUDatabase(db_path) as db:
-            added, updated, skipped = db.import_toml(
-                import_path, on_conflict=reject_all
-            )
+        db = TOFUDatabase(db_path)
+        added, updated, skipped = db.import_toml(import_path, on_conflict=reject_all)
 
         assert added == 0
         assert updated == 0
         assert skipped == 1
 
         # Verify fingerprint unchanged
-        with TOFUDatabase(db_path) as db:
-            info = db.get_host_info("example.com", 1965)
-            assert info["fingerprint"] == original_fp
+        db = TOFUDatabase(db_path)
+        info = db.get_host_info("example.com", 1965)
+        assert info["fingerprint"] == original_fp
 
     def test_import_replace_mode(
         self, tmp_path: Path, test_cert: x509.Certificate, faker
@@ -277,9 +273,9 @@ class TestTOFUImport:
         import_path = tmp_path / "import.toml"
 
         # Add existing hosts
-        with TOFUDatabase(db_path) as db:
-            db.trust("existing1.com", 1965, test_cert)
-            db.trust("existing2.com", 1965, test_cert)
+        db = TOFUDatabase(db_path)
+        db.trust("existing1.com", 1965, test_cert)
+        db.trust("existing2.com", 1965, test_cert)
 
         # Create TOML with new hosts using Faker-generated fingerprint
         import tomli_w
@@ -300,18 +296,18 @@ class TestTOFUImport:
             tomli_w.dump(data, f)
 
         # Import in replace mode
-        with TOFUDatabase(db_path) as db:
-            added, updated, skipped = db.import_toml(import_path, merge=False)
+        db = TOFUDatabase(db_path)
+        added, updated, skipped = db.import_toml(import_path, merge=False)
 
         assert added == 1
         assert updated == 0
         assert skipped == 0
 
         # Verify only new host present
-        with TOFUDatabase(db_path) as db:
-            hosts = db.list_hosts()
-            assert len(hosts) == 1
-            assert hosts[0]["hostname"] == "new1.com"
+        db = TOFUDatabase(db_path)
+        hosts = db.list_hosts()
+        assert len(hosts) == 1
+        assert hosts[0]["hostname"] == "new1.com"
 
     def test_import_invalid_toml_structure(self, tmp_path: Path):
         """Test that invalid TOML structure raises ValueError."""
@@ -327,9 +323,9 @@ class TestTOFUImport:
             tomli_w.dump(data, f)
 
         # Import should fail
-        with TOFUDatabase(db_path) as db:
-            with pytest.raises(ValueError, match="missing 'hosts' section"):
-                db.import_toml(import_path)
+        db = TOFUDatabase(db_path)
+        with pytest.raises(ValueError, match="missing 'hosts' section"):
+            db.import_toml(import_path)
 
     def test_import_missing_required_field(self, tmp_path: Path):
         """Test that missing required field raises ValueError."""
@@ -355,9 +351,9 @@ class TestTOFUImport:
             tomli_w.dump(data, f)
 
         # Import should fail
-        with TOFUDatabase(db_path) as db:
-            with pytest.raises(ValueError, match="missing required field"):
-                db.import_toml(import_path)
+        db = TOFUDatabase(db_path)
+        with pytest.raises(ValueError, match="missing required field"):
+            db.import_toml(import_path)
 
     def test_import_invalid_fingerprint_format(self, tmp_path: Path):
         """Test that invalid fingerprint format raises ValueError."""
@@ -383,9 +379,9 @@ class TestTOFUImport:
             tomli_w.dump(data, f)
 
         # Import should fail
-        with TOFUDatabase(db_path) as db:
-            with pytest.raises(ValueError, match="invalid fingerprint format"):
-                db.import_toml(import_path)
+        db = TOFUDatabase(db_path)
+        with pytest.raises(ValueError, match="invalid fingerprint format"):
+            db.import_toml(import_path)
 
     def test_import_invalid_port(self, tmp_path: Path, faker):
         """Test that invalid port raises ValueError."""
@@ -411,9 +407,9 @@ class TestTOFUImport:
             tomli_w.dump(data, f)
 
         # Import should fail
-        with TOFUDatabase(db_path) as db:
-            with pytest.raises(ValueError, match="invalid port"):
-                db.import_toml(import_path)
+        db = TOFUDatabase(db_path)
+        with pytest.raises(ValueError, match="invalid port"):
+            db.import_toml(import_path)
 
 
 class TestTOFURoundTrip:
@@ -431,23 +427,23 @@ class TestTOFURoundTrip:
         export_path = tmp_path / "export.toml"
 
         # Create database with multiple hosts
-        with TOFUDatabase(db1_path) as db:
-            db.trust("example.com", 1965, test_cert)
-            db.trust("test.org", 1965, test_cert_different)
-            db.trust("example.com", 300, test_cert)
+        db = TOFUDatabase(db1_path)
+        db.trust("example.com", 1965, test_cert)
+        db.trust("test.org", 1965, test_cert_different)
+        db.trust("example.com", 300, test_cert)
 
-            # Get original data
-            original_hosts = db.list_hosts()
+        # Get original data
+        original_hosts = db.list_hosts()
 
-            # Export
-            db.export_toml(export_path)
+        # Export
+        db.export_toml(export_path)
 
         # Import into new database
-        with TOFUDatabase(db2_path) as db:
-            db.import_toml(export_path)
+        db = TOFUDatabase(db2_path)
+        db.import_toml(export_path)
 
-            # Get imported data
-            imported_hosts = db.list_hosts()
+        # Get imported data
+        imported_hosts = db.list_hosts()
 
         # Verify all hosts present and fingerprints match
         assert len(imported_hosts) == len(original_hosts)
