@@ -1,10 +1,66 @@
-# Gemini Protocol Server & Client
+# Nauyaca - Gemini Protocol Server & Client
 
-A modern, feature-complete implementation of the Gemini protocol in Python using asyncio, providing both server and client capabilities.
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Code style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+[![Type checked: mypy](https://img.shields.io/badge/type%20checked-mypy-blue.svg)](http://mypy-lang.org/)
 
-## 📋 Project Overview
+A modern, high-performance implementation of the Gemini protocol in Python using asyncio, providing both server and client capabilities.
 
-This project implements the [Gemini protocol](https://geminiprotocol.net/) - a minimalist, privacy-focused alternative to HTTP. The implementation uses Python's asyncio Protocol/Transport pattern for efficient, non-blocking network I/O.
+## ✨ Why Nauyaca?
+
+**Nauyaca** (pronounced "now-YAH-kah", meaning "serpent" in Nahuatl) brings modern Python async capabilities to the Gemini protocol:
+
+- **🚀 High Performance**: Uses asyncio's low-level Protocol/Transport pattern for maximum efficiency
+- **🔒 Security First**: TOFU certificate validation, rate limiting, and access control built-in
+- **⚙️ Production Ready**: Comprehensive configuration, middleware system, and systemd integration
+- **🛠️ Developer Friendly**: Full type hints, extensive tests, and powered by `uv` for fast dependency management
+- **📚 Well Documented**: Clear architecture docs, security guidelines, and API examples
+
+## 📋 Table of Contents
+
+- [Why Nauyaca?](#-why-nauyaca)
+- [Project Overview](#-project-overview)
+  - [What is Gemini?](#what-is-gemini)
+  - [About Nauyaca](#about-nauyaca)
+  - [Goals](#goals)
+  - [Project Status](#project-status)
+- [Technology Stack](#-technology-stack)
+- [Project Structure](#-project-structure)
+- [Quick Start](#-quick-start)
+  - [Prerequisites](#prerequisites)
+  - [Installation](#installation)
+  - [Running the Server](#running-the-server)
+  - [Using the Client](#using-the-client)
+  - [As a Library](#as-a-library)
+- [Core Features](#-core-features)
+- [Configuration](#-configuration)
+- [Architecture](#-architecture)
+- [Testing](#-testing)
+- [API Examples](#-api-examples)
+- [Security Features](#-security-features)
+- [Deployment](#-deployment)
+- [Contributing](#-contributing)
+- [Resources](#-resources)
+- [Roadmap](#-roadmap)
+
+## 📖 Project Overview
+
+### What is Gemini?
+
+The [Gemini protocol](https://geminiprotocol.net/) is a modern, privacy-focused alternative to HTTP and the web. It aims to be:
+
+- **Simple**: Easier to implement than HTTP, harder to extend (by design)
+- **Privacy-focused**: No cookies, no tracking, no JavaScript
+- **Secure**: TLS is mandatory, not optional
+- **Lightweight**: Text-focused content with minimal formatting
+- **User-centric**: Readers control how content is displayed
+
+Think of it as a modern take on Gopher, sitting comfortably between the complexity of the web and the simplicity of plain text.
+
+### About Nauyaca
+
+This project implements the Gemini protocol with a focus on **performance** and **security**. Unlike typical implementations, Nauyaca uses Python's low-level asyncio Protocol/Transport pattern for efficient, non-blocking network I/O with fine-grained control over connection handling.
 
 ### Goals
 
@@ -15,20 +71,45 @@ This project implements the [Gemini protocol](https://geminiprotocol.net/) - a m
 - ✅ Include comprehensive test coverage
 - ✅ Offer both library and CLI interfaces
 
+### Project Status
+
+**Current Phase**: Security Hardening & Integration Testing
+
+| Feature | Status |
+|---------|--------|
+| Core Protocol Implementation | ✅ Complete |
+| TLS 1.2+ Support | ✅ Complete |
+| Server Configuration (TOML) | ✅ Complete |
+| TOFU Certificate Validation | ✅ Complete |
+| Rate Limiting & DoS Protection | ✅ Complete |
+| IP-based Access Control | ✅ Complete |
+| Client Session Management | ✅ Complete |
+| Security Documentation | ✅ Complete |
+| Integration Testing | 🚧 In Progress |
+| CLI Interface | 🚧 In Progress |
+| Static File Serving | 📋 Planned |
+| Content Type Detection | 📋 Planned |
+
+The core protocol and security features are production-ready. CLI and content serving features are being actively developed.
+
 ## 🛠 Technology Stack
 
+- **Python 3.11+** - Modern Python features and performance
 - **asyncio** - Asynchronous I/O using Protocol/Transport pattern
-- **ssl** - TLS 1.2+ encryption
-- **pytest-asyncio** - Async test support
-- **typer** - CLI interface
+- **ssl** - TLS 1.2+ encryption with custom certificate validation
+- **uv** - Fast, modern Python package manager for development
+- **pytest-asyncio** - Async test support and fixtures
+- **typer** - CLI interface with rich terminal output
 - **cryptography** - Certificate handling and TOFU implementation
+- **tomllib** - TOML configuration file parsing
 
 ## 🏗 Project Structure
 
 ```
-gemini-protocol/
+nauyaca/
 ├── README.md
-├── pyproject.toml           # Project metadata and dependencies
+├── pyproject.toml           # Project metadata and dependencies (managed by uv)
+├── uv.lock                  # Dependency lock file
 ├── .gitignore
 ├── .env.example             # Environment variables template
 │
@@ -109,14 +190,38 @@ gemini-protocol/
 
 ## 🚀 Quick Start
 
+### Prerequisites
+
+- Python 3.11 or higher
+- [uv](https://docs.astral.sh/uv/) - Fast Python package manager (recommended)
+  ```bash
+  # Install uv if you haven't already
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
+
 ### Installation
 
+**Option 1: Standalone CLI tool** (recommended for general use)
 ```bash
-# Standalone CLI tool
 uv tool install nauyaca
+```
 
-# Use it as a library in your project
+**Option 2: As a library** (for development or embedding in your project)
+```bash
+# Add to existing project
 uv add nauyaca
+
+# Or start a new project
+uv init my-gemini-project
+cd my-gemini-project
+uv add nauyaca
+```
+
+**Option 3: From source** (for development)
+```bash
+git clone https://github.com/yourusername/nauyaca.git
+cd nauyaca
+uv sync
 ```
 
 ### Running the Server
@@ -182,13 +287,42 @@ async def main():
 asyncio.run(main())
 ```
 
+### Development Standards
 
-This project follows:
-- **PEP 8** style guide
-- **Black** for code formatting
-- **Ruff** for linting
-- **mypy** for type checking
-- **isort** for import sorting
+This project follows modern Python best practices:
+- **PEP 8** style guide compliance
+- **Ruff** for linting and code formatting (replaces Black, isort, flake8)
+- **mypy** for strict type checking
+- **pytest** for comprehensive testing with async support
+- **uv** for fast, reliable dependency management
+
+### Running Tests
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run with coverage report
+uv run pytest --cov=src/nauyaca --cov-report=html
+
+# Run specific test file
+uv run pytest tests/test_protocol/test_request.py
+
+# Run specific test function
+uv run pytest tests/test_server/test_handler.py::test_static_file_serving
+
+# Run with verbose output
+uv run pytest -v
+
+# Run only unit tests (fast)
+uv run pytest -m unit
+
+# Run only integration tests
+uv run pytest -m integration
+
+# Watch mode (requires pytest-watch)
+uv run ptw
+```
 
 ## 📖 Core Features
 
@@ -339,35 +473,49 @@ nauyaca tofu trust example.com --fingerprint <sha256>
 4. **Stateless**: Each request is independent (no sessions)
 5. **Type Hints**: Full typing for better IDE support and error catching
 
-## 🧪 Testing Strategy
+## 🧪 Testing
 
-### Unit Tests
-- Test individual components in isolation
-- Mock external dependencies
-- Fast execution (<1s total)
+Nauyaca has comprehensive test coverage across multiple layers:
 
-### Integration Tests
-- Test component interactions
-- Use real network connections (localhost)
-- Test TLS handshakes
+### Test Organization
 
-### End-to-End Tests
-- Full server/client scenarios
-- Test with real certificates
-- Validate protocol compliance
+- **Unit Tests** (`@pytest.mark.unit`)
+  - Test individual components in isolation
+  - Mock external dependencies
+  - Fast execution for rapid development feedback
 
-### Performance Tests
-- Load testing with multiple concurrent connections
-- Memory profiling
-- Response time benchmarks
+- **Integration Tests** (`@pytest.mark.integration`)
+  - Test component interactions
+  - Real network connections (localhost only)
+  - TLS handshake validation
+
+- **Security Tests**
+  - TOFU certificate validation
+  - Rate limiting behavior
+  - Access control enforcement
+  - Path traversal protection
+
+### Test Coverage
+
+Current test coverage focuses on:
+- ✅ Protocol parsing and validation
+- ✅ TLS configuration and certificate handling
+- ✅ TOFU database operations (store, verify, export, import)
+- ✅ Server middleware (rate limiting, access control)
+- ✅ Configuration loading and validation
+- 🚧 End-to-end client/server integration (in progress)
+
+Run `uv run pytest --cov=src/nauyaca --cov-report=html` to generate a detailed coverage report.
 
 ## 📚 API Examples
 
-### Server API
+### Server API (Planned)
+
+These examples show the planned high-level server API. The current implementation uses the lower-level Protocol/Transport pattern.
 
 ```python
-from gemini.server import GeminiServer
-from gemini.server.handler import StaticFileHandler
+from nauyaca.server import GeminiServer
+from nauyaca.server.handler import StaticFileHandler
 
 async def main():
     server = GeminiServer(
@@ -386,10 +534,10 @@ async def main():
     await server.serve_forever()
 ```
 
-### Client API
+### Client API (Planned)
 
 ```python
-from gemini.client import GeminiClient
+from nauyaca.client import GeminiClient
 
 async def main():
     async with GeminiClient() as client:
@@ -409,11 +557,11 @@ async def main():
             )
 ```
 
-### Custom Handler Example
+### Custom Handler Example (Planned)
 
 ```python
-from gemini.server import RequestHandler
-from gemini.protocol import Response, StatusCode
+from nauyaca.server import RequestHandler
+from nauyaca.protocol import Response, StatusCode
 
 class MyHandler(RequestHandler):
     async def handle(self, request):
@@ -577,7 +725,11 @@ nauyaca cert generate-client --name "My Identity"
 - Deployment guidelines
 - Compliance information
 
+## 🚀 Deployment
+
 ### Systemd Service Example
+
+For production deployments on Linux systems with systemd:
 
 ```ini
 [Unit]
@@ -587,16 +739,60 @@ After=network.target
 [Service]
 Type=simple
 User=nauyaca
+Group=nauyaca
 WorkingDirectory=/opt/nauyaca
-ExecStart=/opt/nauyaca/venv/bin/gemini-server --config /etc/nauyaca/config.toml
+ExecStart=/usr/local/bin/nauyaca serve --config /etc/nauyaca/config.toml
 Restart=always
 RestartSec=10
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/nauyaca/capsule
 
 [Install]
 WantedBy=multi-user.target
 ```
 
+Save this as `/etc/systemd/system/nauyaca.service`, then:
+
+```bash
+# Enable and start the service
+sudo systemctl enable nauyaca
+sudo systemctl start nauyaca
+
+# Check status
+sudo systemctl status nauyaca
+
+# View logs
+sudo journalctl -u nauyaca -f
+```
+
 ## 🤝 Contributing
+
+We welcome contributions! Follow these steps to get started.
+
+### Development Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/nauyaca.git
+cd nauyaca
+
+# Install dependencies with uv
+uv sync
+
+# Run tests to verify setup
+uv run pytest
+
+# Run linting
+uv run ruff check src/ tests/
+
+# Run type checking
+uv run mypy src/
+```
 
 ### Development Workflow
 
@@ -604,11 +800,12 @@ WantedBy=multi-user.target
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
 4. Write/update tests
-5. Ensure tests pass (`pytest`)
-6. Format code (`ruff check src/ tests/`)
-7. Commit changes (`git commit -m 'Add amazing feature'`)
-8. Push to branch (`git push origin feature/amazing-feature`)
-9. Open a Pull Request
+5. Ensure tests pass: `uv run pytest`
+6. Run linting: `uv run ruff check src/ tests/`
+7. Run type checking: `uv run mypy src/`
+8. Commit changes (`git commit -m 'Add amazing feature'`)
+9. Push to branch (`git push origin feature/amazing-feature`)
+10. Open a Pull Request
 
 ### Commit Convention
 
@@ -628,25 +825,68 @@ MIT License - see LICENSE file for details
 
 ## 🔗 Resources
 
-- [Gemini Protocol Specification](https://geminiprotocol.net/docs/specification.gmi)
-- [Gemini Protocol FAQ](https://geminiprotocol.net/docs/faq.gmi)
-- [Project Gemini](https://gemini.circumlunar.space/)
-- [Awesome Gemini](https://github.com/kr1sp1n/awesome-gemini)
-- [Python asyncio Documentation](https://docs.python.org/3/library/asyncio.html)
+### Gemini Protocol
+- [Gemini Protocol Specification](https://geminiprotocol.net/docs/specification.gmi) - Official protocol spec
+- [Gemini Protocol FAQ](https://geminiprotocol.net/docs/faq.gmi) - Frequently asked questions
+- [Project Gemini](https://gemini.circumlunar.space/) - The original Gemini site
+- [Awesome Gemini](https://github.com/kr1sp1n/awesome-gemini) - Curated list of Gemini resources
 
-## 💬 Support
+### Python & Asyncio
+- [Python asyncio Documentation](https://docs.python.org/3/library/asyncio.html) - Official asyncio docs
+- [asyncio Protocol/Transport](https://docs.python.org/3/library/asyncio-protocol.html) - Low-level networking
+- [Real Python - Async IO](https://realpython.com/async-io-python/) - Comprehensive tutorial
 
-- Documentation: See `docs/` directory
-- Issues: GitHub Issues
-- Discussions: GitHub Discussions
+### Nauyaca Documentation
+- `sample/GEMINI_ASYNCIO_GUIDE.md` - Deep dive into Protocol/Transport pattern
+- `SECURITY.md` - Security features and best practices
+- `docs/` - Architecture and deployment guides
+
+## 💬 Support & Community
+
+- **📖 Documentation**: See `docs/` directory and `sample/` for guides
+- **🐛 Bug Reports**: [GitHub Issues](https://github.com/yourusername/nauyaca/issues)
+- **💡 Feature Requests**: [GitHub Discussions](https://github.com/yourusername/nauyaca/discussions)
+- **🤝 Contributing**: See [Contributing](#-contributing) section above
+- **📧 Security Issues**: See [SECURITY.md](SECURITY.md) for responsible disclosure
+
+### Getting Help
+
+1. Check the documentation in `docs/` and `sample/`
+2. Search existing [GitHub Issues](https://github.com/yourusername/nauyaca/issues)
+3. Ask questions in [GitHub Discussions](https://github.com/yourusername/nauyaca/discussions)
+4. Review code examples in `examples/` directory
+
+## 🗺️ Roadmap
+
+### Version 0.2.0 (Current)
+- ✅ Core protocol implementation
+- ✅ Security features (TOFU, rate limiting, access control)
+- ✅ Configuration system
+- 🚧 Integration testing
+- 🚧 CLI interface completion
+
+### Version 0.3.0 (Next)
+- Static file serving
+- Content type detection
+- Directory listings
+- Error page templates
+- Performance optimization
+
+### Version 1.0.0 (Stable)
+- Production-ready release
+- Stable API
+- Complete documentation
+- Performance benchmarks
+- Migration guides
 
 ## 🙏 Acknowledgments
 
-- Solderpunk for creating the Gemini protocol
-- The Gemini community for feedback and testing
+- **Solderpunk** for creating the Gemini protocol
+- The **Gemini community** for feedback and inspiration
+- Contributors and testers who help improve Nauyaca
 
 ---
 
-**Note**: This project is in active development. The API may change until version 1.0.0.
+**Development Status**: This project is in active development (pre-1.0). Core protocol and security features are stable, but the high-level API may change based on community feedback.
 
-For more detailed documentation, see the `docs/` directory.
+For detailed architecture and protocol documentation, see the `docs/` directory and `sample/GEMINI_ASYNCIO_GUIDE.md`.
