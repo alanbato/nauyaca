@@ -70,6 +70,14 @@ def parse_url(url: str) -> ParsedURL:
     if not parsed.hostname:
         raise ValueError(f"URL missing hostname: {url}")
 
+    # Reject userinfo (per Gemini spec: userinfo portions are forbidden)
+    if parsed.username or parsed.password:
+        raise ValueError(f"URL must not contain userinfo (user:password): {url}")
+
+    # Reject fragments (per Gemini spec: fragments cannot be included)
+    if parsed.fragment:
+        raise ValueError(f"URL must not contain fragment: {url}")
+
     # Get port (default to 1965)
     port = parsed.port if parsed.port is not None else DEFAULT_PORT
 

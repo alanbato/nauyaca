@@ -112,3 +112,18 @@ class TestGeminiRequest:
         assert request.port == 7000
         assert request.path == "/path"
         assert request.query == "key=value"
+
+    def test_from_line_with_userinfo_rejected(self):
+        """Test that URLs with userinfo are rejected per Gemini spec."""
+        with pytest.raises(ValueError, match="userinfo"):
+            GeminiRequest.from_line("gemini://user:pass@example.com/path")
+
+    def test_from_line_with_username_only_rejected(self):
+        """Test that URLs with username only are rejected per Gemini spec."""
+        with pytest.raises(ValueError, match="userinfo"):
+            GeminiRequest.from_line("gemini://user@example.com/path")
+
+    def test_from_line_with_fragment_rejected(self):
+        """Test that URLs with fragments are rejected per Gemini spec."""
+        with pytest.raises(ValueError, match="fragment"):
+            GeminiRequest.from_line("gemini://example.com/path#section")
