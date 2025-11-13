@@ -163,8 +163,9 @@ class GeminiClient:
         # Create future for response
         response_future: asyncio.Future = loop.create_future()
 
-        # Create protocol instance
-        protocol = GeminiClientProtocol(url, response_future)
+        # Create protocol instance with normalized URL
+        # Per spec: "client SHOULD add trailing '/' for empty paths"
+        protocol = GeminiClientProtocol(parsed.normalized, response_future)
 
         # Create connection using Protocol/Transport pattern
         try:

@@ -73,9 +73,7 @@ class TestGeminiClient:
         async def mock_create_connection(*args, **kwargs):
             raise OSError("Connection refused")
 
-        with patch.object(
-            loop, "create_connection", side_effect=mock_create_connection
-        ):
+        with patch.object(loop, "create_connection", side_effect=mock_create_connection):
             client = GeminiClient(timeout=1.0)
             with pytest.raises(ConnectionError, match="Connection failed"):
                 await client._fetch_single("gemini://example.com/")
@@ -190,10 +188,54 @@ class TestGeminiClient:
             )
 
         with patch.object(client, "_fetch_single", new=mock_fetch_redirect):
-            response = await client.fetch(
-                "gemini://example.com/", follow_redirects=False
-            )
+            response = await client.fetch("gemini://example.com/", follow_redirects=False)
 
         # Should return the redirect response without following
         assert response.status == 30
         assert response.meta == "gemini://example.com/other"
+
+    async def test_client_normalizes_url_before_sending(self):
+        """Test that client normalizes URL (adds trailing /) before sending to server.
+
+        Per Gemini spec: "If a client is making a request with an empty path,
+        the client SHOULD add a trailing '/' to the request"
+        """
+        client = GeminiClient(verify_ssl=False, trust_on_first_use=False)
+
+        # Mock the create_connection to capture what URL is actually sent
+        sent_url = None
+
+        async def mock_create_connection(protocol_factory, **kwargs):
+            nonlocal sent_url
+            # Create the protocol instance to capture the URL
+            protocol = protocol_factory()
+            sent_url = protocol.url
+
+            # Mock transport and future
+            from unittest.mock import Mock
+
+            transport = Mock()
+            protocol.connection_made(transport)
+
+            # Return mock transport and protocol
+            return transport, protocol
+
+        with patch("asyncio.get_running_loop") as mock_loop:
+            loop = asyncio.get_event_loop()
+            mock_loop.return_value = loop
+
+            with patch.object(
+                loop, "create_connection", side_effect=mock_create_connection
+            ):
+                try:
+                    # Fetch URL without trailing slash
+                    await client._fetch_single("gemini://example.com")
+                except Exception:
+                    # We expect this to fail since we're not completing the protocol
+                    # but we've captured the URL that was sent
+                    pass
+
+        # Verify the URL sent to the protocol has trailing /
+        assert sent_url == "gemini://example.com/", (
+            f"Expected normalized URL with trailing /, got: {sent_url}"
+        )

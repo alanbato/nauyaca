@@ -315,3 +315,31 @@ class TestGeminiClientProtocol:
 
         # Should return False to indicate full connection close
         assert result is False
+
+    async def test_protocol_sends_url_as_provided(self):
+        """Test that protocol sends URL exactly as provided (without modification).
+
+        The protocol layer should NOT normalize - that's the session layer's job.
+        This test verifies the protocol is a dumb pipe that sends what it's given.
+        """
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+
+        # Protocol with URL that has trailing slash
+        protocol_with_slash = GeminiClientProtocol("gemini://example.com/", future)
+        transport_with_slash = Mock()
+        protocol_with_slash.connection_made(transport_with_slash)
+
+        sent_data_with_slash = transport_with_slash.write.call_args[0][0]
+        assert sent_data_with_slash == b"gemini://example.com/\r\n"
+
+        # Protocol with URL that lacks trailing slash (should send as-is)
+        future2 = loop.create_future()
+        protocol_without_slash = GeminiClientProtocol("gemini://example.com", future2)
+        transport_without_slash = Mock()
+        protocol_without_slash.connection_made(transport_without_slash)
+
+        sent_data_without_slash = transport_without_slash.write.call_args[0][0]
+        assert sent_data_without_slash == b"gemini://example.com\r\n"
+
+        # This shows protocol doesn't normalize - it's session's responsibility
