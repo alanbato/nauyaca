@@ -107,6 +107,11 @@ uv.lock
 .spyderproject
 .spyproject
 
+# Local development assistant
+.project_docs
+.claude
+CLAUDE.md
+
 # Rope project settings
 .ropeproject
 
