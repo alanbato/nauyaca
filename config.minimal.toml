@@ -1,0 +1,13 @@
+# Minimal Nauyaca Gemini Server Configuration
+# This is the simplest working configuration
+
+[server]
+# Required: Path to your gemini content
+document_root = "./capsule"
+
+# All other settings use defaults:
+# - host: localhost
+# - port: 1965
+# - TLS: auto-generated self-signed certificate (for testing only!)
+# - Rate limiting: enabled with sensible defaults
+# - Access control: allow all

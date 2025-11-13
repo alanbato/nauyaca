@@ -3,6 +3,7 @@
 This module provides configuration data structures for the Gemini server.
 """
 
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -116,4 +117,56 @@ class ServerConfig:
             allow_list=self.access_control_allow_list,
             deny_list=self.access_control_deny_list,
             default_allow=self.access_control_default_allow,
+        )
+
+    @classmethod
+    def from_toml(cls, path: Path) -> "ServerConfig":
+        """Load configuration from TOML file.
+
+        Args:
+            path: Path to TOML configuration file.
+
+        Returns:
+            ServerConfig instance loaded from TOML.
+
+        Raises:
+            FileNotFoundError: If config file doesn't exist.
+            ValueError: If config is invalid or cannot be parsed.
+
+        Examples:
+            >>> config = ServerConfig.from_toml(Path("config.toml"))
+            >>> print(config.host, config.port)
+            localhost 1965
+        """
+        if not path.exists():
+            raise FileNotFoundError(f"Config file not found: {path}")
+
+        try:
+            with open(path, "rb") as f:
+                data = tomllib.load(f)
+        except Exception as e:
+            raise ValueError(f"Failed to parse TOML file: {e}") from e
+
+        # Extract sections
+        server = data.get("server", {})
+        rate_limit = data.get("rate_limit", {})
+        access_control = data.get("access_control", {})
+
+        # Build config with proper type conversions
+        return cls(
+            # Server settings
+            host=server.get("host", "localhost"),
+            port=server.get("port", DEFAULT_PORT),
+            document_root=server.get("document_root", "."),
+            certfile=server.get("certfile"),
+            keyfile=server.get("keyfile"),
+            # Rate limiting
+            enable_rate_limiting=rate_limit.get("enabled", True),
+            rate_limit_capacity=rate_limit.get("capacity", 10),
+            rate_limit_refill_rate=rate_limit.get("refill_rate", 1.0),
+            rate_limit_retry_after=rate_limit.get("retry_after", 30),
+            # Access control
+            access_control_allow_list=access_control.get("allow_list"),
+            access_control_deny_list=access_control.get("deny_list"),
+            access_control_default_allow=access_control.get("default_allow", True),
         )

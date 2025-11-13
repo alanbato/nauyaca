@@ -187,25 +187,35 @@ def fetch(
 
 @app.command()
 def serve(
-    root: Path = typer.Argument(
-        ...,
-        help="Document root directory to serve files from",
+    root: Path | None = typer.Argument(
+        None,
+        help="Document root directory to serve files from (optional if using --config)",
         exists=True,
         file_okay=False,
         dir_okay=True,
         resolve_path=True,
     ),
-    host: str = typer.Option(
-        "localhost",
+    config_file: Path | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to TOML configuration file (overrides other options)",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        resolve_path=True,
+    ),
+    host: str | None = typer.Option(
+        None,
         "--host",
         "-h",
-        help="Server host address",
+        help="Server host address (overrides config file)",
     ),
-    port: int = typer.Option(
-        DEFAULT_PORT,
+    port: int | None = typer.Option(
+        None,
         "--port",
         "-p",
-        help="Server port",
+        help="Server port (overrides config file)",
     ),
     cert: Path | None = typer.Option(
         None,
@@ -259,6 +269,12 @@ def serve(
         # Serve current directory on default port (1965)
         $ nauyaca serve .
 
+        # Serve using TOML configuration file
+        $ nauyaca serve --config config.toml
+
+        # Serve with config file and CLI overrides
+        $ nauyaca serve --config config.toml --port 8080
+
         # Serve with directory listings enabled
         $ nauyaca serve ./capsule --enable-directory-listing
 
@@ -274,22 +290,49 @@ def serve(
 
     async def _serve() -> None:
         try:
-            # Create server configuration
-            config = ServerConfig(
-                host=host,
-                port=port,
-                document_root=root,
-                certfile=cert,
-                keyfile=key,
-            )
+            # Load configuration from file if provided
+            if config_file:
+                config = ServerConfig.from_toml(config_file)
 
-            # Start server with logging and directory listing options
+                # CLI arguments override config file values
+                if host is not None:
+                    config.host = host
+                if port is not None:
+                    config.port = port
+                if root is not None:
+                    config.document_root = root
+                if cert is not None:
+                    config.certfile = cert
+                if key is not None:
+                    config.keyfile = key
+            else:
+                # No config file - require document root
+                if root is None:
+                    error_console.print(
+                        "[red]Error:[/] Document root is required "
+                        "(either as argument or via --config)"
+                    )
+                    raise typer.Exit(code=1)
+
+                # Create config from CLI arguments
+                config = ServerConfig(
+                    host=host or "localhost",
+                    port=port or DEFAULT_PORT,
+                    document_root=root,
+                    certfile=cert,
+                    keyfile=key,
+                )
+
+            # Start server with all configuration
             await start_server(
                 config,
                 enable_directory_listing=enable_directory_listing,
                 log_level=log_level,
                 log_file=log_file,
                 json_logs=json_logs,
+                enable_rate_limiting=config.enable_rate_limiting,
+                rate_limit_config=config.get_rate_limit_config(),
+                access_control_config=config.get_access_control_config(),
             )
 
         except ValueError as e:

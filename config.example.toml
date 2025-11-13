@@ -1,0 +1,70 @@
+# Nauyaca Gemini Server Configuration
+# Copy this file to config.toml and customize as needed
+
+[server]
+# Server host and port
+host = "0.0.0.0"  # Bind to all interfaces (use "localhost" for local only)
+port = 1965       # Default Gemini port
+
+# Document root directory - where your gemini content is served from
+document_root = "./capsule"
+
+# TLS certificate and key (required for production)
+# If omitted, a self-signed certificate will be generated automatically
+# Note: Self-signed certificates are only suitable for testing!
+certfile = "cert.pem"
+keyfile = "key.pem"
+
+# Example with absolute paths:
+# certfile = "/etc/nauyaca/cert.pem"
+# keyfile = "/etc/nauyaca/key.pem"
+
+[rate_limit]
+# Enable rate limiting to prevent DoS attacks
+enabled = true
+
+# Token bucket parameters
+# Capacity: Maximum number of requests allowed in a burst
+capacity = 10
+
+# Refill rate: Tokens added per second (sustained request rate)
+# 1.0 = 1 request per second sustained
+# 2.0 = 2 requests per second sustained
+refill_rate = 1.0
+
+# Retry-after: Seconds client should wait when rate limited
+# Sent in the status 44 response
+retry_after = 30
+
+[access_control]
+# IP-based access control
+# Both allow_list and deny_list support CIDR notation
+
+# Allow list (whitelist mode)
+# If set, ONLY these IPs/networks can connect
+# Uncomment and customize to enable:
+# allow_list = ["192.168.1.0/24", "10.0.0.5"]
+
+# Deny list (blacklist mode)
+# If set, these IPs/networks are blocked
+# Uncomment and customize to enable:
+# deny_list = ["203.0.113.0/24", "198.51.100.10"]
+
+# Default policy when IP is not in any list
+# true = allow all (default)
+# false = deny all (requires allow_list to grant access)
+default_allow = true
+
+# Examples of access control configurations:
+
+# Example 1: Allow only local network
+# allow_list = ["127.0.0.0/8", "192.168.0.0/16", "10.0.0.0/8"]
+# default_allow = false
+
+# Example 2: Block specific abusive IPs
+# deny_list = ["198.51.100.0/24"]
+# default_allow = true
+
+# Example 3: Private server (localhost only)
+# allow_list = ["127.0.0.1"]
+# default_allow = false
