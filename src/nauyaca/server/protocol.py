@@ -16,6 +16,9 @@ from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Connection timeout in seconds
+REQUEST_TIMEOUT = 30.0
+
 
 class GeminiServerProtocol(asyncio.Protocol):
     """Server-side protocol for handling Gemini requests.
@@ -39,19 +42,24 @@ class GeminiServerProtocol(asyncio.Protocol):
     """
 
     def __init__(
-        self, request_handler: Callable[[GeminiRequest], GeminiResponse]
+        self,
+        request_handler: Callable[[GeminiRequest], GeminiResponse],
+        middleware: object = None,
     ) -> None:
         """Initialize the server protocol.
 
         Args:
             request_handler: Callback that processes requests and returns responses.
                 Should have signature: (GeminiRequest) -> GeminiResponse
+            middleware: Optional middleware chain for request processing.
         """
         self.request_handler = request_handler
+        self.middleware = middleware
         self.transport: asyncio.Transport | None = None
         self.buffer = b""
         self.peer_name: tuple[str, int] | None = None
         self.request_start_time: float | None = None
+        self.timeout_handle: asyncio.TimerHandle | None = None
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         """Called when a client connects.
@@ -59,9 +67,18 @@ class GeminiServerProtocol(asyncio.Protocol):
         Args:
             transport: The transport handling this connection.
         """
-        self.transport = transport  # type: ignore
-        self.peer_name = self.transport.get_extra_info("peername")
+        self.transport = transport  # type: ignore[assignment]
+        if self.transport:
+            self.peer_name = self.transport.get_extra_info("peername")
         self.request_start_time = time.time()
+
+        # Set timeout for receiving request
+        try:
+            loop = asyncio.get_running_loop()
+            self.timeout_handle = loop.call_later(REQUEST_TIMEOUT, self._handle_timeout)
+        except RuntimeError:
+            # No event loop running (probably in tests)
+            self.timeout_handle = None
 
         logger.debug(
             "connection_established",
@@ -89,6 +106,11 @@ class GeminiServerProtocol(asyncio.Protocol):
 
         # Check if we have a complete request (ends with CRLF)
         if CRLF in self.buffer:
+            # Cancel timeout - we got the request
+            if self.timeout_handle:
+                self.timeout_handle.cancel()
+                self.timeout_handle = None
+
             request_line, _ = self.buffer.split(CRLF, 1)
             self._handle_request(request_line)
 
@@ -111,6 +133,43 @@ class GeminiServerProtocol(asyncio.Protocol):
         except ValueError as e:
             self._send_error_response(StatusCode.BAD_REQUEST, str(e))
             return
+
+        # Process through middleware if present
+        if self.middleware:
+            client_ip = self.peer_name[0] if self.peer_name else "unknown"
+            try:
+                # Use simple approach: create task and get result
+                # Note: This blocks briefly but middleware is fast (in-memory checks)
+                try:
+                    loop = asyncio.get_running_loop()
+                    # type: ignore[attr-defined]
+                    task = asyncio.create_task(
+                        self.middleware.process_request(
+                            request.normalized_url, client_ip
+                        )
+                    )
+                    allow, error_response = loop.run_until_complete(task)
+                except RuntimeError:
+                    # No event loop running (probably in tests) - skip middleware
+                    allow, error_response = True, None
+
+                if not allow:
+                    # Middleware rejected request - send error response
+                    if self.transport and error_response:
+                        self.transport.write(error_response.encode("utf-8"))
+                        self.transport.close()
+                    return
+            except Exception as e:
+                logger.error(
+                    "middleware_error",
+                    client_ip=client_ip,
+                    error=str(e),
+                    exception_type=type(e).__name__,
+                )
+                self._send_error_response(
+                    StatusCode.TEMPORARY_FAILURE, "Middleware error"
+                )
+                return
 
         try:
             # Call request handler to get response
@@ -189,11 +248,33 @@ class GeminiServerProtocol(asyncio.Protocol):
         response = GeminiResponse(status=status.value, meta=message)
         self._send_response(response)
 
+    def _handle_timeout(self) -> None:
+        """Handle request timeout."""
+        if self.transport and not self.transport.is_closing():
+            if self.request_start_time:
+                duration = time.time() - self.request_start_time
+            else:
+                duration = 0
+            logger.warning(
+                "request_timeout",
+                client_ip=self.peer_name[0] if self.peer_name else "unknown",
+                duration_ms=round(duration * 1000, 2),
+            )
+            # Send timeout response
+            response = "40 Request timeout\r\n"
+            self.transport.write(response.encode("utf-8"))
+            self.transport.close()
+
     def connection_lost(self, exc: Exception | None) -> None:
         """Called when the connection is closed.
 
         Args:
             exc: Exception if connection closed due to error, None for clean close.
         """
-        # Cleanup can be done here if needed
+        # Cancel timeout if still active
+        if self.timeout_handle:
+            self.timeout_handle.cancel()
+            self.timeout_handle = None
+
+        # Cleanup
         self.transport = None

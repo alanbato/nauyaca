@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..protocol.constants import DEFAULT_PORT
+from .middleware import AccessControlConfig, RateLimitConfig
 
 
 @dataclass
@@ -36,7 +37,18 @@ class ServerConfig:
     certfile: Path | str | None = None
     keyfile: Path | str | None = None
 
-    def __post_init__(self):
+    # Middleware configuration
+    enable_rate_limiting: bool = True
+    rate_limit_capacity: int = 10
+    rate_limit_refill_rate: float = 1.0
+    rate_limit_retry_after: int = 30
+
+    # Access control
+    access_control_allow_list: list[str] | None = None
+    access_control_deny_list: list[str] | None = None
+    access_control_default_allow: bool = True
+
+    def __post_init__(self) -> None:
         """Validate and normalize configuration after initialization."""
         # Convert string paths to Path objects
         if isinstance(self.document_root, str):
@@ -78,3 +90,30 @@ class ServerConfig:
                 "Both certfile and keyfile must be provided together, "
                 "or both must be None"
             )
+
+    def get_rate_limit_config(self) -> RateLimitConfig:
+        """Get rate limit configuration.
+
+        Returns:
+            RateLimitConfig instance with current settings.
+        """
+        return RateLimitConfig(
+            capacity=self.rate_limit_capacity,
+            refill_rate=self.rate_limit_refill_rate,
+            retry_after=self.rate_limit_retry_after,
+        )
+
+    def get_access_control_config(self) -> AccessControlConfig | None:
+        """Get access control configuration.
+
+        Returns:
+            AccessControlConfig instance if any lists are configured, None otherwise.
+        """
+        if not (self.access_control_allow_list or self.access_control_deny_list):
+            return None
+
+        return AccessControlConfig(
+            allow_list=self.access_control_allow_list,
+            deny_list=self.access_control_deny_list,
+            default_allow=self.access_control_default_allow,
+        )
