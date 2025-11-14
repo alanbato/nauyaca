@@ -52,10 +52,8 @@ dev = [
 
 
 [project.urls]
-Homepage = "https://github.com/alanbato/gemini-protocol"
-Documentation = "https://github.com/alanbato/gemini-protocol/docs"
-Repository = "https://github.com/alanbato/gemini-protocol"
-"Bug Tracker" = "https://github.com/alanbato/gemini-protocol/issues"
+Repository = "https://github.com/alanbato/nauyaca"
+"Bug Tracker" = "https://github.com/alanbato/nauyaca/issues"
 
 [project.scripts]
 nauyaca = "nauyaca.__main__:main"
