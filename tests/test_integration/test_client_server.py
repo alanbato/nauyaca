@@ -143,12 +143,12 @@ async def full_server(unused_tcp_port, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.network
-async def test_fetch_index_page(lightweight_server):
-    """Test fetching the index page from test server."""
+async def test_get_index_page(lightweight_server):
+    """Test getting the index page from test server."""
     port = lightweight_server
 
     async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
-        response = await client.fetch(f"gemini://127.0.0.1:{port}/")
+        response = await client.get(f"gemini://127.0.0.1:{port}/")
 
         assert response.status == 20
         assert response.mime_type == "text/gemini"
@@ -158,12 +158,12 @@ async def test_fetch_index_page(lightweight_server):
 
 @pytest.mark.integration
 @pytest.mark.network
-async def test_fetch_about_page(lightweight_server):
-    """Test fetching the about page from test server."""
+async def test_get_about_page(lightweight_server):
+    """Test getting the about page from test server."""
     port = lightweight_server
 
     async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
-        response = await client.fetch(f"gemini://127.0.0.1:{port}/about.gmi")
+        response = await client.get(f"gemini://127.0.0.1:{port}/about.gmi")
 
         assert response.status == 20
         assert response.mime_type == "text/gemini"
@@ -172,12 +172,12 @@ async def test_fetch_about_page(lightweight_server):
 
 @pytest.mark.integration
 @pytest.mark.network
-async def test_fetch_not_found(lightweight_server):
-    """Test fetching a non-existent page returns 51."""
+async def test_get_not_found(lightweight_server):
+    """Test getting a non-existent page returns 51."""
     port = lightweight_server
 
     async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
-        response = await client.fetch(
+        response = await client.get(
             f"gemini://127.0.0.1:{port}/notfound.gmi",
             follow_redirects=False,
         )
@@ -195,7 +195,7 @@ async def test_connection_refused(unused_tcp_port):
 
     async with GeminiClient(timeout=0.5, verify_ssl=False) as client:
         with pytest.raises(ConnectionError, match="Connection failed"):
-            await client.fetch(f"gemini://127.0.0.1:{unused_tcp_port}/")
+            await client.get(f"gemini://127.0.0.1:{unused_tcp_port}/")
 
 
 @pytest.mark.integration
@@ -205,16 +205,16 @@ async def test_multiple_requests(lightweight_server):
     port = lightweight_server
 
     async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
-        # Fetch index
-        response1 = await client.fetch(f"gemini://127.0.0.1:{port}/")
+        # Get index
+        response1 = await client.get(f"gemini://127.0.0.1:{port}/")
         assert response1.status == 20
 
-        # Fetch about
-        response2 = await client.fetch(f"gemini://127.0.0.1:{port}/about.gmi")
+        # Get about
+        response2 = await client.get(f"gemini://127.0.0.1:{port}/about.gmi")
         assert response2.status == 20
 
-        # Fetch not found
-        response3 = await client.fetch(
+        # Get not found
+        response3 = await client.get(
             f"gemini://127.0.0.1:{port}/missing",
             follow_redirects=False,
         )

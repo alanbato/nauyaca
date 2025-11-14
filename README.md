@@ -253,11 +253,11 @@ nauyaca cert generate --hostname gemini.example.com --days 365
 ### Using the Client
 
 ```bash
-# Fetch a resource
-nauyaca fetch gemini://gemini.circumlunar.space/
+# Get a resource
+nauyaca get gemini://gemini.circumlunar.space/
 
 # With TOFU certificate validation
-nauyaca fetch gemini://example.com/ --tofu
+nauyaca get gemini://example.com/ --tofu
 
 # Manage TOFU database
 nauyaca tofu list
@@ -541,8 +541,8 @@ from nauyaca.client import GeminiClient
 
 async def main():
     async with GeminiClient() as client:
-        # Simple fetch
-        response = await client.fetch('gemini://example.com/')
+        # Simple get
+        response = await client.get('gemini://example.com/')
 
         # Handle different status codes
         if response.status == 20:
@@ -551,7 +551,7 @@ async def main():
             print(f"Redirect to: {response.meta}")
         elif response.status == 10:
             user_input = input(response.meta + ": ")
-            response = await client.fetch(
+            response = await client.get(
                 response.url,
                 query=user_input
             )

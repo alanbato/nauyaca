@@ -21,21 +21,21 @@ from .protocol import GeminiClientProtocol
 class GeminiClient:
     """High-level Gemini client with async/await API.
 
-    This class provides a simple, high-level interface for fetching Gemini
+    This class provides a simple, high-level interface for getting Gemini
     resources. It handles connection management, TLS, redirects, and timeouts.
 
     Examples:
         >>> # Basic usage
         >>> async with GeminiClient() as client:
-        ...     response = await client.fetch('gemini://example.com/')
+        ...     response = await client.get('gemini://example.com/')
         ...     print(response.body)
 
         >>> # With custom timeout and redirect settings
         >>> client = GeminiClient(timeout=30, max_redirects=3)
-        >>> response = await client.fetch('gemini://example.com/')
+        >>> response = await client.get('gemini://example.com/')
 
         >>> # Disable redirect following
-        >>> response = await client.fetch(
+        >>> response = await client.get(
         ...     'gemini://example.com/',
         ...     follow_redirects=False
         ... )
@@ -106,15 +106,15 @@ class GeminiClient:
         """Async context manager exit."""
         pass
 
-    async def fetch(
+    async def get(
         self,
         url: str,
         follow_redirects: bool = True,
     ) -> GeminiResponse:
-        """Fetch a Gemini resource.
+        """Get a Gemini resource.
 
         Args:
-            url: The Gemini URL to fetch.
+            url: The Gemini URL to get.
             follow_redirects: Whether to automatically follow redirects.
                 Default is True.
 
@@ -127,24 +127,24 @@ class GeminiClient:
             ConnectionError: If the connection fails.
 
         Examples:
-            >>> response = await client.fetch('gemini://example.com/')
+            >>> response = await client.get('gemini://example.com/')
             >>> if response.is_success():
             ...     print(response.body)
         """
         # Validate URL
         validate_url(url)
 
-        # Fetch with redirect following if enabled
+        # Get with redirect following if enabled
         if follow_redirects:
-            return await self._fetch_with_redirects(url, max_redirects=self.max_redirects)
+            return await self._get_with_redirects(url, max_redirects=self.max_redirects)
         else:
-            return await self._fetch_single(url)
+            return await self._get_single(url)
 
-    async def _fetch_single(self, url: str) -> GeminiResponse:
-        """Fetch a single URL without following redirects.
+    async def _get_single(self, url: str) -> GeminiResponse:
+        """Get a single URL without following redirects.
 
         Args:
-            url: The Gemini URL to fetch.
+            url: The Gemini URL to get.
 
         Returns:
             A GeminiResponse object.
@@ -223,16 +223,16 @@ class GeminiClient:
             # Ensure transport is closed
             transport.close()
 
-    async def _fetch_with_redirects(
+    async def _get_with_redirects(
         self,
         url: str,
         max_redirects: int,
         redirect_chain: list | None = None,
     ) -> GeminiResponse:
-        """Fetch a URL and follow redirects.
+        """Get a URL and follow redirects.
 
         Args:
-            url: The Gemini URL to fetch.
+            url: The Gemini URL to get.
             max_redirects: Maximum number of redirects to follow.
             redirect_chain: List of URLs already visited (for loop detection).
 
@@ -255,8 +255,8 @@ class GeminiClient:
         if len(redirect_chain) >= max_redirects:
             raise ValueError(f"Maximum redirects ({max_redirects}) exceeded at: {url}")
 
-        # Fetch the URL
-        response = await self._fetch_single(url)
+        # Get the URL
+        response = await self._get_single(url)
 
         # If it's a redirect, follow it
         if is_redirect(response.status):
@@ -266,7 +266,7 @@ class GeminiClient:
 
             # Add current URL to chain and follow redirect
             redirect_chain.append(url)
-            return await self._fetch_with_redirects(
+            return await self._get_with_redirects(
                 redirect_url,
                 max_redirects=max_redirects,
                 redirect_chain=redirect_chain,

@@ -261,12 +261,12 @@ async def test_rate_limiting_allows_within_limit(server_with_rate_limiting):
 
     async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
         # First request should succeed
-        response1 = await client.fetch(f"gemini://127.0.0.1:{port}/")
+        response1 = await client.get(f"gemini://127.0.0.1:{port}/")
         assert response1.status == 20
         assert "Welcome to Gemini" in response1.body
 
         # Second request should also succeed (within capacity)
-        response2 = await client.fetch(f"gemini://127.0.0.1:{port}/about.gmi")
+        response2 = await client.get(f"gemini://127.0.0.1:{port}/about.gmi")
         assert response2.status == 20
         assert "About" in response2.body
 
@@ -282,7 +282,7 @@ async def test_rate_limiting_blocks_excessive_requests(server_with_rate_limiting
         # Token bucket starts full with 3 tokens and refills at 1 token/second
         rate_limited = False
         for _i in range(10):  # Make 10 rapid requests
-            response = await client.fetch(
+            response = await client.get(
                 f"gemini://127.0.0.1:{port}/", follow_redirects=False
             )
             if response.status == 44:
@@ -307,7 +307,7 @@ async def test_rate_limiting_refills_over_time(server_with_rate_limiting):
         # Exhaust the rate limit with rapid requests
         rate_limited = False
         for _i in range(10):
-            response = await client.fetch(
+            response = await client.get(
                 f"gemini://127.0.0.1:{port}/", follow_redirects=False
             )
             if response.status == 44:
@@ -320,9 +320,7 @@ async def test_rate_limiting_refills_over_time(server_with_rate_limiting):
         await asyncio.sleep(2.5)
 
         # Should now be able to make requests again
-        response = await client.fetch(
-            f"gemini://127.0.0.1:{port}/", follow_redirects=False
-        )
+        response = await client.get(f"gemini://127.0.0.1:{port}/", follow_redirects=False)
         assert response.status == 20
 
 
@@ -337,7 +335,7 @@ async def test_access_control_allows_permitted_ip(server_with_access_control):
 
     async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
         # 127.0.0.1 is in allowed_ips, so this should succeed
-        response = await client.fetch(f"gemini://127.0.0.1:{port}/")
+        response = await client.get(f"gemini://127.0.0.1:{port}/")
         assert response.status == 20
         assert "Welcome to Gemini" in response.body
 
@@ -350,9 +348,7 @@ async def test_access_control_blocks_denied_ip(server_with_deny_list):
 
     async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
         # 127.0.0.1 is in denied_ips, so this should be blocked
-        response = await client.fetch(
-            f"gemini://127.0.0.1:{port}/", follow_redirects=False
-        )
+        response = await client.get(f"gemini://127.0.0.1:{port}/", follow_redirects=False)
         # PROXY REQUEST REFUSED (used for access denied)
         assert response.status == 53
         assert (
@@ -372,7 +368,7 @@ async def test_middleware_chain_access_control_first(server_with_all_middleware)
 
     async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
         # With both middleware enabled and IP allowed, requests should succeed
-        response = await client.fetch(f"gemini://127.0.0.1:{port}/")
+        response = await client.get(f"gemini://127.0.0.1:{port}/")
         assert response.status == 20
         assert "Welcome to Gemini" in response.body
 
@@ -390,7 +386,7 @@ async def test_middleware_chain_both_active(server_with_all_middleware):
         successful_requests = 0
 
         for _i in range(15):  # Make enough requests to exceed capacity
-            response = await client.fetch(
+            response = await client.get(
                 f"gemini://127.0.0.1:{port}/", follow_redirects=False
             )
             if response.status == 20:
@@ -422,7 +418,7 @@ async def test_different_paths_with_middleware(server_with_rate_limiting):
         rate_limited = False
         for i in range(10):
             path = paths[i % len(paths)]
-            response = await client.fetch(
+            response = await client.get(
                 f"gemini://127.0.0.1:{port}{path}",
                 follow_redirects=False,
             )
@@ -447,7 +443,7 @@ async def test_error_responses_with_middleware(server_with_rate_limiting):
         not_found_count = 0
 
         for i in range(10):
-            response = await client.fetch(
+            response = await client.get(
                 f"gemini://127.0.0.1:{port}/missing{i}.gmi",
                 follow_redirects=False,
             )

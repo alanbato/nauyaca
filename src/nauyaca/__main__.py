@@ -84,8 +84,8 @@ def _format_response(response: GeminiResponse, verbose: bool = False) -> None:
 
 
 @app.command()
-def fetch(
-    url: str = typer.Argument(..., help="Gemini URL to fetch"),
+def get(
+    url: str = typer.Argument(..., help="Gemini URL to get"),
     max_redirects: int = typer.Option(
         MAX_REDIRECTS,
         "--max-redirects",
@@ -120,24 +120,24 @@ def fetch(
         help="Use CA-based SSL verification instead of TOFU (not recommended for Gemini)",
     ),
 ) -> None:
-    """Fetch a Gemini resource and display it.
+    """Get a Gemini resource and display it.
 
     Examples:
 
-        # Fetch a URL
-        $ nauyaca fetch gemini://gemini.circumlunar.space/
+        # Get a URL
+        $ nauyaca get gemini://gemini.circumlunar.space/
 
-        # Fetch with verbose output
-        $ nauyaca fetch -v gemini://example.com/
+        # Get with verbose output
+        $ nauyaca get -v gemini://example.com/
 
         # Don't follow redirects
-        $ nauyaca fetch --no-redirects gemini://example.com/
+        $ nauyaca get --no-redirects gemini://example.com/
 
         # Custom timeout
-        $ nauyaca fetch -t 10 gemini://example.com/
+        $ nauyaca get -t 10 gemini://example.com/
     """
 
-    async def _fetch() -> None:
+    async def _get() -> None:
         try:
             async with GeminiClient(
                 timeout=timeout,
@@ -145,7 +145,7 @@ def fetch(
                 verify_ssl=verify_ssl,
                 trust_on_first_use=trust_on_first_use,
             ) as client:
-                response = await client.fetch(
+                response = await client.get(
                     url,
                     follow_redirects=not no_redirects,
                 )
@@ -182,7 +182,7 @@ def fetch(
             raise typer.Exit(code=1) from e
 
     # Run the async function
-    asyncio.run(_fetch())
+    asyncio.run(_get())
 
 
 @app.command()
