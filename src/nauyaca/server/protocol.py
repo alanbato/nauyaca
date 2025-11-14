@@ -134,71 +134,32 @@ class GeminiServerProtocol(asyncio.Protocol):
             self._send_error_response(StatusCode.BAD_REQUEST, str(e))
             return
 
+        client_ip = self.peer_name[0] if self.peer_name else "unknown"
+
         # Process through middleware if present
         if self.middleware:
-            client_ip = self.peer_name[0] if self.peer_name else "unknown"
             try:
-                # Use simple approach: create task and get result
-                # Note: This blocks briefly but middleware is fast (in-memory checks)
-                try:
-                    loop = asyncio.get_running_loop()
-                    # type: ignore[attr-defined]
-                    task = asyncio.create_task(
-                        self.middleware.process_request(
-                            request.normalized_url, client_ip
-                        )
-                    )
-                    allow, error_response = loop.run_until_complete(task)
-                except RuntimeError:
-                    # No event loop running (probably in tests) - skip middleware
-                    allow, error_response = True, None
-
-                if not allow:
-                    # Middleware rejected request - send error response
-                    if self.transport and error_response:
-                        self.transport.write(error_response.encode("utf-8"))
-                        self.transport.close()
-                    return
-            except Exception as e:
-                logger.error(
-                    "middleware_error",
-                    client_ip=client_ip,
-                    error=str(e),
-                    exception_type=type(e).__name__,
+                # Create async task for middleware processing
+                task = asyncio.create_task(
+                    self.middleware.process_request(request.normalized_url, client_ip)
                 )
-                self._send_error_response(
-                    StatusCode.TEMPORARY_FAILURE, "Middleware error"
+                # Add callback to handle result when task completes
+                # Use lambda to pass request and client_ip to callback
+                task.add_done_callback(
+                    lambda t: self._handle_middleware_result(t, request, client_ip)
                 )
+                # Return early - callback will handle the rest
                 return
-
-        try:
-            # Call request handler to get response
-            response = self.request_handler(request)
-
-            # Set the URL in the response for logging (if not already set)
-            if not response.url:
-                # Create a new response with the URL
-                response = GeminiResponse(
-                    status=response.status,
-                    meta=response.meta,
-                    body=response.body,
-                    url=request.normalized_url,
+            except RuntimeError:
+                # No event loop running (probably in tests) - skip middleware
+                logger.warning(
+                    "middleware_skipped",
+                    client_ip=client_ip,
+                    reason="no_event_loop",
                 )
-        except Exception as e:
-            # Catch any handler errors and return 40 TEMPORARY FAILURE
-            logger.error(
-                "handler_error",
-                client_ip=self.peer_name[0] if self.peer_name else "unknown",
-                error=str(e),
-                exception_type=type(e).__name__,
-            )
-            self._send_error_response(
-                StatusCode.TEMPORARY_FAILURE, f"Server error: {str(e)}"
-            )
-            return
 
-        # Send the response
-        self._send_response(response)
+        # No middleware or middleware skipped - route directly
+        self._route_request(request, client_ip)
 
     def _send_response(self, response: GeminiResponse) -> None:
         """Send a GeminiResponse to the client.
@@ -264,6 +225,79 @@ class GeminiServerProtocol(asyncio.Protocol):
             response = "40 Request timeout\r\n"
             self.transport.write(response.encode("utf-8"))
             self.transport.close()
+
+    def _route_request(self, request: GeminiRequest, client_ip: str) -> None:
+        """Route the request and send response.
+
+        This method handles the actual request routing after middleware processing.
+
+        Args:
+            request: The parsed Gemini request.
+            client_ip: The client's IP address.
+        """
+        try:
+            # Call request handler to get response
+            response = self.request_handler(request)
+
+            # Set the URL in the response for logging (if not already set)
+            if not response.url:
+                # Create a new response with the URL
+                response = GeminiResponse(
+                    status=response.status,
+                    meta=response.meta,
+                    body=response.body,
+                    url=request.normalized_url,
+                )
+        except Exception as e:
+            # Catch any handler errors and return 40 TEMPORARY FAILURE
+            logger.error(
+                "handler_error",
+                client_ip=client_ip,
+                error=str(e),
+                exception_type=type(e).__name__,
+            )
+            self._send_error_response(
+                StatusCode.TEMPORARY_FAILURE, f"Server error: {str(e)}"
+            )
+            return
+
+        # Send the response
+        self._send_response(response)
+
+    def _handle_middleware_result(
+        self, task: asyncio.Task, request: GeminiRequest, client_ip: str
+    ) -> None:
+        """Handle the result of middleware processing.
+
+        This is called as a callback when the middleware task completes.
+
+        Args:
+            task: The completed asyncio task.
+            request: The parsed Gemini request.
+            client_ip: The client's IP address.
+        """
+        try:
+            # Get the result from the completed task
+            allow, error_response = task.result()
+
+            if not allow:
+                # Middleware rejected request - send error response
+                if self.transport and error_response:
+                    self.transport.write(error_response.encode("utf-8"))
+                    self.transport.close()
+                return
+
+            # Middleware allowed request - continue routing
+            self._route_request(request, client_ip)
+
+        except Exception as e:
+            logger.error(
+                "middleware_error",
+                client_ip=client_ip,
+                error=str(e),
+                exception_type=type(e).__name__,
+            )
+            self._send_error_response(StatusCode.TEMPORARY_FAILURE, "Middleware error")
 
     def connection_lost(self, exc: Exception | None) -> None:
         """Called when the connection is closed.
