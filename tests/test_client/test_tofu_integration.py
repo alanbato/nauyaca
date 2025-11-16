@@ -128,10 +128,14 @@ class TestGeminiClientProtocolCertificateExtraction:
         future = loop.create_future()
         protocol = GeminiClientProtocol("gemini://test.example.com/", future)
 
-        # Mock transport with certificate
-        mock_transport = mocker.Mock()
+        # Create mock SSL object that behaves like real ssl.SSLSocket
+        mock_ssl_object = mocker.Mock()
         cert_der = test_cert.public_bytes(encoding=serialization.Encoding.DER)
-        mock_transport.get_extra_info.return_value = cert_der
+        mock_ssl_object.getpeercert.return_value = cert_der
+
+        # Mock transport with SSL object
+        mock_transport = mocker.Mock()
+        mock_transport.get_extra_info.return_value = mock_ssl_object
 
         protocol.transport = mock_transport
 
@@ -139,7 +143,9 @@ class TestGeminiClientProtocolCertificateExtraction:
 
         assert cert is not None
         assert isinstance(cert, x509.Certificate)
-        mock_transport.get_extra_info.assert_called_once_with("peercert", True)
+        # Verify the correct call sequence
+        mock_transport.get_extra_info.assert_called_once_with("ssl_object")
+        mock_ssl_object.getpeercert.assert_called_once_with(binary_form=True)
 
     async def test_get_peer_certificate_no_transport(self):
         """Test getting peer certificate when transport is None."""

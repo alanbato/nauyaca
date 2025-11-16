@@ -231,17 +231,15 @@ nauyaca cert generate --hostname gemini.example.com --days 365
 ### Using the Client
 
 ```bash
-# Get a resource (TOFU is enabled by default)
+# Get a resource
 nauyaca get gemini://geminiprotocol.net/
 
 # Get with verbose output showing response headers
 nauyaca get gemini://geminiprotocol.net/ --verbose
 
-# Disable TOFU validation (not recommended)
-nauyaca get gemini://geminiprotocol.net/ --no-trust
-
 # Manage TOFU database
 nauyaca tofu list
+nauyaca tofu trust geminiprotocol.net
 nauyaca tofu export backup.toml
 nauyaca tofu import backup.toml
 nauyaca tofu revoke example.com

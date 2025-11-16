@@ -12,6 +12,7 @@ import pytest
 
 from nauyaca.client.session import GeminiClient
 from nauyaca.security.certificates import generate_self_signed_cert
+from nauyaca.security.tofu import TOFUDatabase
 from nauyaca.server.config import ServerConfig
 from nauyaca.server.handler import StaticFileHandler
 from nauyaca.server.protocol import GeminiServerProtocol
@@ -219,3 +220,97 @@ async def test_multiple_requests(lightweight_server):
             follow_redirects=False,
         )
         assert response3.status == 51
+
+
+@pytest.mark.integration
+@pytest.mark.network
+async def test_tofu_first_connection_saves_certificate(lightweight_server, tmp_path):
+    """Test that first connection saves certificate to TOFU database."""
+    port = lightweight_server
+    tofu_db_path = tmp_path / "tofu.db"
+
+    # First connection with TOFU enabled
+    async with GeminiClient(
+        timeout=5.0,
+        verify_ssl=False,
+        trust_on_first_use=True,
+        tofu_db_path=tofu_db_path,
+    ) as client:
+        response = await client.get(f"gemini://127.0.0.1:{port}/")
+        assert response.status == 20
+
+    # Verify certificate was saved
+    db = TOFUDatabase(tofu_db_path)
+    hosts = db.list_hosts()
+    assert len(hosts) == 1
+    assert hosts[0]["hostname"] == "127.0.0.1"
+    assert hosts[0]["port"] == port
+    assert hosts[0]["fingerprint"].startswith("sha256:")
+
+
+@pytest.mark.integration
+@pytest.mark.network
+async def test_tofu_subsequent_connection_validates_certificate(
+    lightweight_server, tmp_path
+):
+    """Test that subsequent connections validate against saved certificate."""
+    port = lightweight_server
+    tofu_db_path = tmp_path / "tofu.db"
+
+    # First connection
+    async with GeminiClient(
+        timeout=5.0,
+        verify_ssl=False,
+        trust_on_first_use=True,
+        tofu_db_path=tofu_db_path,
+    ) as client:
+        response1 = await client.get(f"gemini://127.0.0.1:{port}/")
+        assert response1.status == 20
+
+    # Second connection should validate successfully without prompts
+    async with GeminiClient(
+        timeout=5.0,
+        verify_ssl=False,
+        trust_on_first_use=True,
+        tofu_db_path=tofu_db_path,
+    ) as client:
+        response2 = await client.get(f"gemini://127.0.0.1:{port}/")
+        assert response2.status == 20
+
+    # Verify we still only have one entry
+    db = TOFUDatabase(tofu_db_path)
+    hosts = db.list_hosts()
+    assert len(hosts) == 1
+
+
+@pytest.mark.integration
+@pytest.mark.network
+async def test_tofu_database_persistent_across_clients(lightweight_server, tmp_path):
+    """Test that TOFU database persists across different client instances."""
+    port = lightweight_server
+    tofu_db_path = tmp_path / "tofu.db"
+
+    # First client - trust on first use
+    async with GeminiClient(
+        timeout=5.0,
+        verify_ssl=False,
+        trust_on_first_use=True,
+        tofu_db_path=tofu_db_path,
+    ) as client1:
+        response1 = await client1.get(f"gemini://127.0.0.1:{port}/")
+        assert response1.status == 20
+
+    # Completely new client instance - should use saved cert
+    async with GeminiClient(
+        timeout=5.0,
+        verify_ssl=False,
+        trust_on_first_use=True,
+        tofu_db_path=tofu_db_path,
+    ) as client2:
+        response2 = await client2.get(f"gemini://127.0.0.1:{port}/")
+        assert response2.status == 20
+
+    # Verify database state
+    db = TOFUDatabase(tofu_db_path)
+    hosts = db.list_hosts()
+    assert len(hosts) == 1

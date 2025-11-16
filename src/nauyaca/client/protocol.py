@@ -97,8 +97,7 @@ class GeminiClientProtocol(asyncio.Protocol):
         if len(self.buffer) > MAX_RESPONSE_BODY_SIZE:
             self._set_error(
                 Exception(
-                    f"Response body exceeds maximum size "
-                    f"({MAX_RESPONSE_BODY_SIZE} bytes)"
+                    f"Response body exceeds maximum size ({MAX_RESPONSE_BODY_SIZE} bytes)"
                 )
             )
             self.transport.close()  # type: ignore
@@ -202,13 +201,19 @@ class GeminiClientProtocol(asyncio.Protocol):
         if self.transport is None:
             return None
 
-        # Get the peer certificate in DER format (binary)
-        der_cert = self.transport.get_extra_info("peercert", True)
-        if der_cert and isinstance(der_cert, bytes):
-            try:
+        # Get the SSL object from the transport
+        ssl_object = self.transport.get_extra_info("ssl_object")
+        if ssl_object is None:
+            return None
+
+        try:
+            # Get certificate in DER binary format
+            # Note: binary_form=True returns the certificate as DER-encoded bytes
+            der_cert = ssl_object.getpeercert(binary_form=True)
+            if der_cert:
                 return x509.load_der_x509_certificate(der_cert)
-            except Exception:
-                # If we can't load the certificate, return None
-                return None
+        except Exception:
+            # If we can't load the certificate, return None
+            return None
 
         return None
