@@ -1,6 +1,6 @@
 # Nauyaca - Gemini Protocol Server & Client
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Code style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![Type checked: mypy](https://img.shields.io/badge/type%20checked-mypy-blue.svg)](http://mypy-lang.org/)
@@ -48,7 +48,7 @@ A modern, high-performance implementation of the Gemini protocol in Python using
 
 ### What is Gemini?
 
-The [Gemini protocol](https://geminiprotocol.net/) is a modern, privacy-focused alternative to HTTP and the web. It aims to be:
+The [Gemini protocol](https://geminiprotocol.net) is a modern, privacy-focused alternative to HTTP and the web. It aims to be:
 
 - **Simple**: Easier to implement than HTTP, harder to extend (by design)
 - **Privacy-focused**: No cookies, no tracking, no JavaScript
@@ -108,10 +108,13 @@ The core protocol and security features are production-ready. CLI and content se
 ```
 nauyaca/
 ├── README.md
+├── SECURITY.md              # Security documentation
+├── CONTRIBUTING.md          # Contribution guidelines
+├── CODE_OF_CONDUCT.md       # Code of conduct
 ├── pyproject.toml           # Project metadata and dependencies (managed by uv)
 ├── uv.lock                  # Dependency lock file
-├── .gitignore
-├── .env.example             # Environment variables template
+├── config.example.toml      # Full configuration example
+├── config.minimal.toml      # Minimal configuration example
 │
 ├── src/
 │   └── nauyaca/
@@ -131,14 +134,12 @@ nauyaca/
 │       │   ├── handler.py        # Request handler
 │       │   ├── router.py         # URL routing
 │       │   ├── config.py         # Server configuration
-│       │   └── middleware.py     # Logging, rate limiting, etc.
+│       │   └── middleware.py     # Rate limiting, access control
 │       │
 │       ├── client/
 │       │   ├── __init__.py
 │       │   ├── protocol.py       # Client protocol implementation
-│       │   ├── session.py        # High-level client API
-│       │   ├── tofu.py           # Trust-On-First-Use cert validation
-│       │   └── cache.py          # Response caching
+│       │   └── session.py        # High-level client API
 │       │
 │       ├── security/
 │       │   ├── __init__.py
@@ -146,20 +147,11 @@ nauyaca/
 │       │   ├── certificates.py   # Cert generation and management
 │       │   └── tofu.py           # TOFU database
 │       │
-│       ├── content/
-│       │   ├── __init__.py
-│       │   ├── gemtext.py        # Gemtext parser/renderer
-│       │   ├── mime.py           # MIME type detection
-│       │   └── templates.py      # Error page templates
-│       │
 │       └── utils/
 │           ├── __init__.py
-│           ├── url.py            # URL parsing/validation
-│           ├── encoding.py       # Charset handling
-│           └── logging.py        # Logging configuration
+│           └── url.py            # URL parsing/validation
 │
 ├── tests/
-│   ├── __init__.py
 │   ├── conftest.py              # Pytest fixtures
 │   ├── test_protocol/
 │   ├── test_server/
@@ -167,32 +159,18 @@ nauyaca/
 │   ├── test_security/
 │   └── test_integration/
 │
-├── examples/
-│   ├── simple_server.py         # Minimal server example
-│   ├── simple_client.py         # Minimal client example
-│   ├── static_site.py           # Static file server
-│   ├── dynamic_content.py       # CGI-like dynamic content
-│   └── proxy.py                 # Gemini-to-HTTP proxy
-│
 ├── docs/
-│   ├── architecture.md          # Architecture decisions
-│   ├── protocol_guide.md        # Gemini protocol overview
-│   ├── api_reference.md         # API documentation
-│   └── deployment.md            # Production deployment guide
+│   └── gemini_protocol/         # Gemini protocol reference docs
+│       └── gemtext.txt
 │
-└── capsule/                     # Example Gemini capsule content
-    ├── index.gmi
-    ├── about.gmi
-    └── certs/                   # SSL certificates
-        ├── .gitkeep
-        └── README.md
+└── capsule/                     # Example Gemini capsule content directory
 ```
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-- Python 3.11 or higher
+- Python 3.14 or higher
 - [uv](https://docs.astral.sh/uv/) - Fast Python package manager (recommended)
   ```bash
   # Install uv if you haven't already
@@ -219,7 +197,7 @@ uv add nauyaca
 
 **Option 3: From source** (for development)
 ```bash
-git clone https://github.com/yourusername/nauyaca.git
+git clone https://github.com/alanbato/nauyaca.git
 cd nauyaca
 uv sync
 ```
@@ -253,16 +231,19 @@ nauyaca cert generate --hostname gemini.example.com --days 365
 ### Using the Client
 
 ```bash
-# Get a resource
-nauyaca get gemini://gemini.circumlunar.space/
+# Get a resource (TOFU is enabled by default)
+nauyaca get gemini://geminiprotocol.net/
 
-# With TOFU certificate validation
-nauyaca get gemini://example.com/ --tofu
+# Get with verbose output showing response headers
+nauyaca get gemini://geminiprotocol.net/ --verbose
+
+# Disable TOFU validation (not recommended)
+nauyaca get gemini://geminiprotocol.net/ --no-trust
 
 # Manage TOFU database
 nauyaca tofu list
-nauyaca tofu export backup.json
-nauyaca tofu import backup.json
+nauyaca tofu export backup.toml
+nauyaca tofu import backup.toml
 nauyaca tofu revoke example.com
 ```
 
@@ -270,19 +251,20 @@ nauyaca tofu revoke example.com
 
 ```python
 import asyncio
-from nauyaca.client.session import fetch_gemini
+from nauyaca.client import GeminiClient
 
 async def main():
     # Simple fetch with TOFU validation
-    status, meta, body = await fetch_gemini("gemini://example.com/")
+    async with GeminiClient() as client:
+        response = await client.get("gemini://geminiprotocol.net/")
 
-    if status == 20:
-        print(f"Content-Type: {meta}")
-        print(body)
-    elif status == 30 or status == 31:
-        print(f"Redirect to: {meta}")
-    else:
-        print(f"Error {status}: {meta}")
+        if response.is_success():
+            print(f"Content-Type: {response.meta}")
+            print(response.body)
+        elif response.is_redirect():
+            print(f"Redirect to: {response.redirect_url}")
+        else:
+            print(f"Error {response.status}: {response.meta}")
 
 asyncio.run(main())
 ```
@@ -451,16 +433,16 @@ The client uses TOFU (Trust-On-First-Use) certificate validation with a local da
 nauyaca tofu list
 
 # Export known hosts for backup
-nauyaca tofu export backup.json
+nauyaca tofu export backup.toml
 
 # Import known hosts
-nauyaca tofu import backup.json
+nauyaca tofu import backup.toml
 
 # Revoke trust for a host
 nauyaca tofu revoke example.com
 
-# Manually trust a host
-nauyaca tofu trust example.com --fingerprint <sha256>
+# Manually trust a host (connects and retrieves certificate)
+nauyaca tofu trust example.com
 ```
 
 ## 🏛 Architecture
@@ -509,75 +491,51 @@ Run `uv run pytest --cov=src/nauyaca --cov-report=html` to generate a detailed c
 
 ## 📚 API Examples
 
-### Server API (Planned)
-
-These examples show the planned high-level server API. The current implementation uses the lower-level Protocol/Transport pattern.
+### Using Nauyaca as a Library
 
 ```python
-from nauyaca.server import GeminiServer
-from nauyaca.server.handler import StaticFileHandler
+import asyncio
+from nauyaca.client import GeminiClient
 
 async def main():
-    server = GeminiServer(
-        host='localhost',
-        port=1965,
-        certfile='cert.pem',
-        keyfile='key.pem'
-    )
+    # Create client with TOFU validation enabled (default)
+    async with GeminiClient() as client:
+        # Simple GET request
+        response = await client.get("gemini://geminiprotocol.net/")
 
-    # Add handler
-    handler = StaticFileHandler(root='./capsule')
-    server.add_handler('/*', handler)
+        # Check response status
+        if response.is_success():
+            print(f"Content-Type: {response.meta}")
+            print(response.body)
+        elif response.is_redirect():
+            print(f"Redirect to: {response.redirect_url}")
+        elif 10 <= response.status < 20:
+            # Input required (status 1x)
+            print(f"Input requested: {response.meta}")
+        else:
+            print(f"Error {response.status}: {response.meta}")
 
-    # Start server
-    await server.start()
-    await server.serve_forever()
+asyncio.run(main())
 ```
 
-### Client API (Planned)
+### Advanced Configuration
 
 ```python
 from nauyaca.client import GeminiClient
 
-async def main():
-    async with GeminiClient() as client:
-        # Simple get
-        response = await client.get('gemini://example.com/')
+# Custom timeout and redirect settings
+async with GeminiClient(timeout=60, max_redirects=3) as client:
+    response = await client.get("gemini://geminiprotocol.net/")
 
-        # Handle different status codes
-        if response.status == 20:
-            print(response.body)
-        elif response.status == 30:
-            print(f"Redirect to: {response.meta}")
-        elif response.status == 10:
-            user_input = input(response.meta + ": ")
-            response = await client.get(
-                response.url,
-                query=user_input
-            )
+# Disable redirect following
+async with GeminiClient() as client:
+    response = await client.get(
+        "gemini://geminiprotocol.net/",
+        follow_redirects=False
+    )
 ```
 
-### Custom Handler Example (Planned)
-
-```python
-from nauyaca.server import RequestHandler
-from nauyaca.protocol import Response, StatusCode
-
-class MyHandler(RequestHandler):
-    async def handle(self, request):
-        if request.path == '/time':
-            from datetime import datetime
-            body = f"# Current Time\n\n{datetime.now()}"
-            return Response(
-                status=StatusCode.SUCCESS,
-                meta='text/gemini',
-                body=body
-            )
-        return Response(
-            status=StatusCode.NOT_FOUND,
-            meta='Page not found'
-        )
-```
+For more advanced usage, see the [integration tests](tests/test_integration/) which demonstrate server and client usage patterns.
 
 ## 🔒 Security Features
 
@@ -609,16 +567,16 @@ ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
 nauyaca tofu list
 
 # Export for backup/sharing
-nauyaca tofu export backup.json
+nauyaca tofu export backup.toml
 
 # Import from backup
-nauyaca tofu import backup.json
+nauyaca tofu import backup.toml
 
 # Revoke trust for compromised host
 nauyaca tofu revoke example.com
 
-# Manually trust a specific certificate
-nauyaca tofu trust example.com --fingerprint abc123...
+# Manually trust a certificate (connects and retrieves it)
+nauyaca tofu trust example.com
 ```
 
 **Storage**: Certificates stored in `~/.nauyaca/known_hosts.db` (SQLite database)
@@ -778,7 +736,7 @@ We welcome contributions! Follow these steps to get started.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/nauyaca.git
+git clone https://github.com/alanbato/nauyaca.git
 cd nauyaca
 
 # Install dependencies with uv
@@ -826,9 +784,7 @@ MIT License - see LICENSE file for details
 ## 🔗 Resources
 
 ### Gemini Protocol
-- [Gemini Protocol Specification](https://geminiprotocol.net/docs/specification.gmi) - Official protocol spec
-- [Gemini Protocol FAQ](https://geminiprotocol.net/docs/faq.gmi) - Frequently asked questions
-- [Project Gemini](https://gemini.circumlunar.space/) - The original Gemini site
+- [Gemini Protocol Homepage](https://geminiprotocol.net) - Official Gemini protocol website
 - [Awesome Gemini](https://github.com/kr1sp1n/awesome-gemini) - Curated list of Gemini resources
 
 ### Python & Asyncio
@@ -837,24 +793,24 @@ MIT License - see LICENSE file for details
 - [Real Python - Async IO](https://realpython.com/async-io-python/) - Comprehensive tutorial
 
 ### Nauyaca Documentation
-- `sample/GEMINI_ASYNCIO_GUIDE.md` - Deep dive into Protocol/Transport pattern
-- `SECURITY.md` - Security features and best practices
-- `docs/` - Architecture and deployment guides
+- [SECURITY.md](SECURITY.md) - Security features and best practices
+- [CONTRIBUTING.md](CONTRIBUTING.md) - Contribution guidelines
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) - Code of conduct
 
 ## 💬 Support & Community
 
-- **📖 Documentation**: See `docs/` directory and `sample/` for guides
-- **🐛 Bug Reports**: [GitHub Issues](https://github.com/yourusername/nauyaca/issues)
-- **💡 Feature Requests**: [GitHub Discussions](https://github.com/yourusername/nauyaca/discussions)
+- **📖 Documentation**: See [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md), and project docs
+- **🐛 Bug Reports**: [GitHub Issues](https://github.com/alanbato/nauyaca/issues)
+- **💡 Feature Requests**: [GitHub Discussions](https://github.com/alanbato/nauyaca/discussions)
 - **🤝 Contributing**: See [Contributing](#-contributing) section above
 - **📧 Security Issues**: See [SECURITY.md](SECURITY.md) for responsible disclosure
 
 ### Getting Help
 
-1. Check the documentation in `docs/` and `sample/`
-2. Search existing [GitHub Issues](https://github.com/yourusername/nauyaca/issues)
-3. Ask questions in [GitHub Discussions](https://github.com/yourusername/nauyaca/discussions)
-4. Review code examples in `examples/` directory
+1. Check the documentation ([SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md))
+2. Search existing [GitHub Issues](https://github.com/alanbato/nauyaca/issues)
+3. Ask questions in [GitHub Discussions](https://github.com/alanbato/nauyaca/discussions)
+4. Review the [integration tests](tests/test_integration/) for usage examples
 
 ## 🗺️ Roadmap
 
@@ -888,5 +844,3 @@ MIT License - see LICENSE file for details
 ---
 
 **Development Status**: This project is in active development (pre-1.0). Core protocol and security features are stable, but the high-level API may change based on community feedback.
-
-For detailed architecture and protocol documentation, see the `docs/` directory and `sample/GEMINI_ASYNCIO_GUIDE.md`.
