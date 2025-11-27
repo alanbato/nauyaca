@@ -264,7 +264,9 @@ async def test_rate_limiting_allows_within_limit(server_with_rate_limiting):
     """Test that requests within rate limit are allowed."""
     port = server_with_rate_limiting
 
-    async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
+    async with GeminiClient(
+        timeout=5.0, verify_ssl=False, trust_on_first_use=False
+    ) as client:
         # First request should succeed
         response1 = await client.get(f"gemini://127.0.0.1:{port}/")
         assert response1.status == 20
@@ -282,7 +284,9 @@ async def test_rate_limiting_blocks_excessive_requests(server_with_rate_limiting
     """Test that requests exceeding rate limit are blocked with 44 status."""
     port = server_with_rate_limiting
 
-    async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
+    async with GeminiClient(
+        timeout=5.0, verify_ssl=False, trust_on_first_use=False
+    ) as client:
         # Make many rapid requests - capacity is 3, so eventually we'll hit the limit
         # Token bucket starts full with 3 tokens and refills at 1 token/second
         rate_limited = False
@@ -308,7 +312,9 @@ async def test_rate_limiting_refills_over_time(server_with_rate_limiting):
     """Test that rate limit tokens refill over time."""
     port = server_with_rate_limiting
 
-    async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
+    async with GeminiClient(
+        timeout=5.0, verify_ssl=False, trust_on_first_use=False
+    ) as client:
         # Exhaust the rate limit with rapid requests
         rate_limited = False
         for _i in range(10):
@@ -338,7 +344,9 @@ async def test_access_control_allows_permitted_ip(server_with_access_control):
     """Test that allowed IPs can access the server."""
     port = server_with_access_control
 
-    async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
+    async with GeminiClient(
+        timeout=5.0, verify_ssl=False, trust_on_first_use=False
+    ) as client:
         # 127.0.0.1 is in allowed_ips, so this should succeed
         response = await client.get(f"gemini://127.0.0.1:{port}/")
         assert response.status == 20
@@ -351,7 +359,9 @@ async def test_access_control_blocks_denied_ip(server_with_deny_list):
     """Test that denied IPs are blocked with 53 status."""
     port = server_with_deny_list
 
-    async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
+    async with GeminiClient(
+        timeout=5.0, verify_ssl=False, trust_on_first_use=False
+    ) as client:
         # 127.0.0.1 is in denied_ips, so this should be blocked
         response = await client.get(f"gemini://127.0.0.1:{port}/", follow_redirects=False)
         # PROXY REQUEST REFUSED (used for access denied)
@@ -371,7 +381,9 @@ async def test_middleware_chain_access_control_first(server_with_all_middleware)
     """Test middleware chain order (access control before rate limiting)."""
     port = server_with_all_middleware
 
-    async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
+    async with GeminiClient(
+        timeout=5.0, verify_ssl=False, trust_on_first_use=False
+    ) as client:
         # With both middleware enabled and IP allowed, requests should succeed
         response = await client.get(f"gemini://127.0.0.1:{port}/")
         assert response.status == 20
@@ -384,7 +396,9 @@ async def test_middleware_chain_both_active(server_with_all_middleware):
     """Test that both middleware components work together correctly."""
     port = server_with_all_middleware
 
-    async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
+    async with GeminiClient(
+        timeout=5.0, verify_ssl=False, trust_on_first_use=False
+    ) as client:
         # Make rapid requests - should eventually hit rate limit
         # (not access denied)
         rate_limited = False
@@ -415,7 +429,9 @@ async def test_different_paths_with_middleware(server_with_rate_limiting):
     """Test that middleware applies to all paths, not just index."""
     port = server_with_rate_limiting
 
-    async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
+    async with GeminiClient(
+        timeout=5.0, verify_ssl=False, trust_on_first_use=False
+    ) as client:
         # Test that rate limiting works across different paths
         paths = ["/", "/about.gmi", "/notfound.gmi", "/"]
 
@@ -441,7 +457,9 @@ async def test_error_responses_with_middleware(server_with_rate_limiting):
     """Test that error responses (like 51 NOT FOUND) still count against rate limit."""
     port = server_with_rate_limiting
 
-    async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
+    async with GeminiClient(
+        timeout=5.0, verify_ssl=False, trust_on_first_use=False
+    ) as client:
         # Make rapid requests to non-existent pages
         # Should eventually hit rate limit
         rate_limited = False
@@ -471,64 +489,143 @@ async def test_error_responses_with_middleware(server_with_rate_limiting):
 async def server_with_cert_required(unused_tcp_port, tmp_path):
     """Start server with client certificate required.
 
+    This fixture generates both server and client certificates.
+    The client cert is loaded as a trusted CA on the server to allow
+    self-signed client certificate authentication (required for OpenSSL 3.x).
+
     Yields:
-        int: Port number
+        dict: Contains 'port', 'client_cert', and 'client_key' paths
     """
     # Create test capsule
     capsule = tmp_path / "capsule"
     create_test_capsule(capsule)
 
-    # Generate self-signed certificate
-    cert_pem, key_pem = generate_self_signed_cert("localhost")
-    cert_file = tmp_path / "cert.pem"
-    key_file = tmp_path / "key.pem"
-    cert_file.write_bytes(cert_pem)
-    key_file.write_bytes(key_pem)
+    # Generate server certificate
+    server_cert_pem, server_key_pem = generate_self_signed_cert("localhost")
+    server_cert_file = tmp_path / "server.pem"
+    server_key_file = tmp_path / "server.key"
+    server_cert_file.write_bytes(server_cert_pem)
+    server_key_file.write_bytes(server_key_pem)
 
-    # Create server configuration with certificate auth
+    # Generate client certificate (needed before server starts for CA loading)
+    client_cert_pem, client_key_pem = generate_self_signed_cert("client")
+    client_cert_file = tmp_path / "client.pem"
+    client_key_file = tmp_path / "client.key"
+    client_cert_file.write_bytes(client_cert_pem)
+    client_key_file.write_bytes(client_key_pem)
+
+    # Create SSL context with client cert as trusted CA
+    # NOTE: OpenSSL 3.x with CERT_OPTIONAL requires CA certs to be loaded,
+    # otherwise self-signed client certificates cause silent TLS failures.
+    from nauyaca.security.tls import create_server_context
+
+    ssl_context = create_server_context(
+        str(server_cert_file),
+        str(server_key_file),
+        request_client_cert=True,
+        client_ca_certs=[str(client_cert_file)],
+    )
+
+    # Create server configuration
     config = ServerConfig(
         host="127.0.0.1",
         port=unused_tcp_port,
         document_root=capsule,
-        certfile=cert_file,
-        keyfile=key_file,
+        certfile=server_cert_file,
+        keyfile=server_key_file,
         enable_rate_limiting=False,
         require_client_cert=True,
     )
 
-    # Start server in background task with certificate auth config
-    server_task = asyncio.create_task(
-        start_server(
-            config,
-            enable_rate_limiting=False,
-            certificate_auth_config=config.get_certificate_auth_config(),
+    # Create router and handler manually (can't use start_server with custom SSL)
+    from nauyaca.content.templates import error_404
+    from nauyaca.protocol.response import GeminiResponse
+    from nauyaca.protocol.status import StatusCode
+    from nauyaca.server.handler import StaticFileHandler
+    from nauyaca.server.router import Router, RouteType
+
+    router = Router()
+    static_handler = StaticFileHandler(config.document_root)
+
+    def default_404_handler(request):
+        from nauyaca.protocol.request import GeminiRequest
+
+        if isinstance(request, GeminiRequest):
+            path = request.path
+        else:
+            path = "/"
+        return GeminiResponse(
+            status=StatusCode.NOT_FOUND.value,
+            meta="text/gemini",
+            body=error_404(path),
         )
+
+    router.set_default_handler(default_404_handler)
+    router.add_route("/", static_handler.handle, route_type=RouteType.PREFIX)
+
+    # Set up middleware chain with certificate auth
+    cert_auth_config = config.get_certificate_auth_config()
+    middleware_chain = None
+    if cert_auth_config:
+        from nauyaca.server.middleware import CertificateAuth, MiddlewareChain
+
+        cert_auth = CertificateAuth(cert_auth_config)
+        middleware_chain = MiddlewareChain([cert_auth])
+
+    # Create server with custom SSL context
+    loop = asyncio.get_running_loop()
+    server = await loop.create_server(
+        lambda: GeminiServerProtocol(router.route, middleware_chain),
+        config.host,
+        config.port,
+        ssl=ssl_context,
     )
 
-    # Wait for server to start
-    await asyncio.sleep(0.5)
+    yield {
+        "port": unused_tcp_port,
+        "client_cert": client_cert_file,
+        "client_key": client_key_file,
+    }
 
-    yield unused_tcp_port
-
-    # Cleanup: cancel server task
-    server_task.cancel()
-    try:
-        await server_task
-    except asyncio.CancelledError:
-        pass
+    # Cleanup
+    server.close()
+    await server.wait_closed()
 
 
 @pytest.mark.integration
 @pytest.mark.network
 async def test_cert_auth_rejects_without_cert(server_with_cert_required):
     """Test that server returns 60 when client cert is required but not provided."""
-    port = server_with_cert_required
+    port = server_with_cert_required["port"]
 
-    async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
+    async with GeminiClient(
+        timeout=5.0, verify_ssl=False, trust_on_first_use=False
+    ) as client:
         # Without a client certificate, should get status 60
         response = await client.get(f"gemini://127.0.0.1:{port}/", follow_redirects=False)
         assert response.status == 60
         assert "certificate" in response.meta.lower()
+
+
+@pytest.mark.integration
+@pytest.mark.network
+async def test_client_with_cert_authenticates(server_with_cert_required):
+    """Test that client with certificate can authenticate to server requiring certs."""
+    port = server_with_cert_required["port"]
+    client_cert = server_with_cert_required["client_cert"]
+    client_key = server_with_cert_required["client_key"]
+
+    async with GeminiClient(
+        timeout=5.0,
+        verify_ssl=False,
+        trust_on_first_use=False,
+        client_cert=client_cert,
+        client_key=client_key,
+    ) as client:
+        response = await client.get(f"gemini://127.0.0.1:{port}/")
+        # Should succeed (status 20) instead of getting status 60
+        assert response.status == 20
+        assert "Welcome to Gemini" in response.body
 
 
 # File Size Limit Tests
@@ -597,7 +694,9 @@ async def test_file_size_limit_allows_small_files(server_with_small_file_limit):
     """Test that files under the size limit are served."""
     port = server_with_small_file_limit
 
-    async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
+    async with GeminiClient(
+        timeout=5.0, verify_ssl=False, trust_on_first_use=False
+    ) as client:
         response = await client.get(f"gemini://127.0.0.1:{port}/small.gmi")
         assert response.status == 20
         assert "Small file" in response.body
@@ -609,7 +708,9 @@ async def test_file_size_limit_rejects_large_files(server_with_small_file_limit)
     """Test that files over the size limit are rejected."""
     port = server_with_small_file_limit
 
-    async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
+    async with GeminiClient(
+        timeout=5.0, verify_ssl=False, trust_on_first_use=False
+    ) as client:
         response = await client.get(
             f"gemini://127.0.0.1:{port}/large.gmi", follow_redirects=False
         )

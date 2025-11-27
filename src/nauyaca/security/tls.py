@@ -66,15 +66,24 @@ def create_client_context(
 def create_server_context(
     certfile: str,
     keyfile: str,
-    require_client_cert: bool = False,
+    request_client_cert: bool = False,
+    client_ca_certs: list[str] | None = None,
 ) -> ssl.SSLContext:
     """Create an SSL context for Gemini server connections.
 
     Args:
         certfile: Path to server certificate file.
         keyfile: Path to server private key file.
-        require_client_cert: Whether to require client certificates for
-            authentication. Default is False.
+        request_client_cert: Whether to request client certificates.
+            When True, the server will ask clients to send a certificate.
+            With OpenSSL 3.x, client certificates must be signed by a CA
+            in client_ca_certs or the TLS handshake will fail silently.
+            Enforcement should be done via CertificateAuth middleware.
+            Default is False.
+        client_ca_certs: List of paths to CA certificates for verifying client
+            certificates. For self-signed client certs, include each client's
+            cert file here. Required when request_client_cert=True with
+            OpenSSL 3.x. Default is None.
 
     Returns:
         An SSL context configured for Gemini server connections.
@@ -83,15 +92,18 @@ def create_server_context(
         >>> # Basic server context
         >>> context = create_server_context('cert.pem', 'key.pem')
 
-        >>> # Server requiring client certificates
+        >>> # Server requesting client certificates (for middleware auth)
         >>> context = create_server_context(
         ...     'cert.pem',
         ...     'key.pem',
-        ...     require_client_cert=True
+        ...     request_client_cert=True,
+        ...     client_ca_certs=['trusted_client1.pem', 'trusted_client2.pem']
         ... )
     """
     # Create SSL context for server
-    context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    # NOTE: We use SSLContext directly instead of create_default_context because
+    # create_default_context loads system CA certificates which we don't need.
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 
     # Set minimum TLS version (Gemini requires TLS 1.2+)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
@@ -99,9 +111,19 @@ def create_server_context(
     # Load server certificate and key
     context.load_cert_chain(certfile, keyfile)
 
-    # Configure client certificate verification
-    if require_client_cert:
-        context.verify_mode = ssl.CERT_REQUIRED
+    # Configure client certificate handling
+    # Use CERT_OPTIONAL to request certs without requiring them
+    # The CertificateAuth middleware handles actual enforcement
+    if request_client_cert:
+        context.verify_mode = ssl.CERT_OPTIONAL
+
+        # Load client CA certificates if provided
+        # NOTE: With OpenSSL 3.x, CERT_OPTIONAL requires CA certs to be loaded,
+        # otherwise self-signed client certificates cause silent TLS failures.
+        # For self-signed client certs, load each cert as a trusted CA.
+        if client_ca_certs:
+            for ca_cert in client_ca_certs:
+                context.load_verify_locations(ca_cert)
     else:
         context.verify_mode = ssl.CERT_NONE
 

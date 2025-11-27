@@ -119,6 +119,24 @@ def get(
         "--verify-ssl/--no-verify-ssl",
         help="Use CA-based SSL verification instead of TOFU (not recommended for Gemini)",
     ),
+    client_cert: Path | None = typer.Option(
+        None,
+        "--client-cert",
+        help="Path to client certificate file (PEM format) for authentication",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        resolve_path=True,
+    ),
+    client_key: Path | None = typer.Option(
+        None,
+        "--client-key",
+        help="Path to client private key file (PEM format) for authentication",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        resolve_path=True,
+    ),
 ) -> None:
     """Get a Gemini resource and display it.
 
@@ -135,7 +153,23 @@ def get(
 
         # Custom timeout
         $ nauyaca get -t 10 gemini://example.com/
+
+        # Authenticate with client certificate
+        $ nauyaca get gemini://secure.example.com/ \\
+            --client-cert ~/.nauyaca/certs/myidentity.pem \\
+            --client-key ~/.nauyaca/certs/myidentity.key
     """
+    # Validate client cert/key pair
+    if client_cert and not client_key:
+        error_console.print(
+            "[red]Error:[/] --client-key is required when --client-cert is provided"
+        )
+        raise typer.Exit(code=1)
+    if client_key and not client_cert:
+        error_console.print(
+            "[red]Error:[/] --client-cert is required when --client-key is provided"
+        )
+        raise typer.Exit(code=1)
 
     async def _get() -> None:
         try:
@@ -144,6 +178,8 @@ def get(
                 max_redirects=max_redirects,
                 verify_ssl=verify_ssl,
                 trust_on_first_use=trust_on_first_use,
+                client_cert=client_cert,
+                client_key=client_key,
             ) as client:
                 response = await client.get(
                     url,
@@ -716,6 +752,190 @@ def tofu_import(
         raise typer.Exit(code=1) from e
     except Exception as e:
         error_console.print(f"[red]Error importing database: {e}[/]")
+        raise typer.Exit(code=1) from e
+
+
+# Create cert command group
+cert_app = typer.Typer(
+    help="Manage client certificates for authentication",
+    no_args_is_help=True,
+)
+app.add_typer(cert_app, name="cert")
+
+
+@cert_app.command("generate")
+def cert_generate(
+    name: str = typer.Argument(..., help="Name for the certificate (used in filename)"),
+    output_dir: Path | None = typer.Option(
+        None,
+        "--output-dir",
+        "-o",
+        help="Output directory (default: ~/.nauyaca/certs/)",
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+    ),
+    valid_days: int = typer.Option(
+        365,
+        "--valid-days",
+        help="Certificate validity in days",
+    ),
+    key_size: int = typer.Option(
+        2048,
+        "--key-size",
+        help="RSA key size in bits",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Overwrite existing certificate files",
+    ),
+) -> None:
+    """Generate a client certificate for Gemini authentication.
+
+    Creates a self-signed certificate and private key that can be used
+    with the --client-cert and --client-key options of the get command.
+
+    The certificate is generated with the given name as the Common Name (CN),
+    which some Gemini servers may display as your identity.
+
+    Examples:
+
+        # Generate a certificate named 'myidentity'
+        $ nauyaca cert generate myidentity
+
+        # Generate with custom validity and output location
+        $ nauyaca cert generate myidentity --valid-days 730 -o ./certs/
+
+        # Overwrite existing certificate
+        $ nauyaca cert generate myidentity --force
+    """
+    import os
+    import stat
+
+    from .security.certificates import (
+        generate_self_signed_cert,
+        get_certificate_fingerprint,
+        load_certificate,
+    )
+
+    # Determine output directory
+    if output_dir is None:
+        output_dir = Path.home() / ".nauyaca" / "certs"
+
+    # Create directory if needed
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine output file paths
+    cert_file = output_dir / f"{name}.pem"
+    key_file = output_dir / f"{name}.key"
+
+    # Check for existing files
+    if cert_file.exists() and not force:
+        error_console.print(
+            f"[red]Error:[/] Certificate file already exists: {cert_file}"
+        )
+        error_console.print("Use --force to overwrite")
+        raise typer.Exit(code=1)
+
+    if key_file.exists() and not force:
+        error_console.print(f"[red]Error:[/] Key file already exists: {key_file}")
+        error_console.print("Use --force to overwrite")
+        raise typer.Exit(code=1)
+
+    try:
+        # Generate certificate
+        console.print(f"[cyan]Generating certificate for '{name}'...[/]")
+        cert_pem, key_pem = generate_self_signed_cert(
+            hostname=name,
+            key_size=key_size,
+            valid_days=valid_days,
+        )
+
+        # Write certificate file
+        cert_file.write_bytes(cert_pem)
+
+        # Write key file with restrictive permissions
+        key_file.write_bytes(key_pem)
+        os.chmod(key_file, stat.S_IRUSR | stat.S_IWUSR)  # 0o600
+
+        # Load cert to get fingerprint
+        cert = load_certificate(cert_file)
+        fingerprint = get_certificate_fingerprint(cert)
+
+        # Calculate expiration date
+        from datetime import datetime, timedelta
+
+        expiry_date = datetime.now() + timedelta(days=valid_days)
+
+        # Display results
+        console.print("\n[bold green]Certificate generated successfully![/]\n")
+
+        table = Table(show_header=False, box=None)
+        table.add_column("Key", style="bold cyan")
+        table.add_column("Value")
+
+        table.add_row("Certificate", str(cert_file))
+        table.add_row("Private key", str(key_file))
+        table.add_row("Fingerprint", fingerprint[:32] + "...")
+        table.add_row("Valid until", expiry_date.strftime("%Y-%m-%d"))
+
+        console.print(table)
+
+        console.print("\n[dim]Use with:[/]")
+        console.print("  nauyaca get gemini://example.com/ \\")
+        console.print(f"    --client-cert {cert_file} \\")
+        console.print(f"    --client-key {key_file}")
+
+    except Exception as e:
+        error_console.print(f"[red]Error generating certificate:[/] {e}")
+        raise typer.Exit(code=1) from e
+
+
+@cert_app.command("info")
+def cert_info(
+    cert_file: Path = typer.Argument(
+        ...,
+        help="Path to certificate file (PEM format)",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        resolve_path=True,
+    ),
+) -> None:
+    """Show information about a certificate file.
+
+    Examples:
+
+        $ nauyaca cert info ~/.nauyaca/certs/myidentity.pem
+    """
+    from .security.certificates import (
+        get_certificate_fingerprint,
+        get_certificate_info,
+        load_certificate,
+    )
+
+    try:
+        cert = load_certificate(cert_file)
+        info = get_certificate_info(cert)
+        fingerprint = get_certificate_fingerprint(cert)
+
+        table = Table(show_header=False, box=None)
+        table.add_column("Key", style="bold cyan")
+        table.add_column("Value")
+
+        table.add_row("Subject", info["subject"])
+        table.add_row("Issuer", info["issuer"])
+        table.add_row("Serial", str(info["serial_number"]))
+        table.add_row("Not Before", info["not_before"])
+        table.add_row("Not After", info["not_after"])
+        table.add_row("Fingerprint (SHA-256)", fingerprint)
+
+        console.print(table)
+
+    except Exception as e:
+        error_console.print(f"[red]Error reading certificate:[/] {e}")
         raise typer.Exit(code=1) from e
 
 

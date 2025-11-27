@@ -49,6 +49,8 @@ class GeminiClient:
         verify_ssl: bool = False,
         trust_on_first_use: bool = True,
         tofu_db_path: Path | None = None,
+        client_cert: Path | str | None = None,
+        client_key: Path | str | None = None,
     ):
         """Initialize the Gemini client.
 
@@ -63,11 +65,21 @@ class GeminiClient:
                 Default is True. This is the recommended mode for Gemini.
             tofu_db_path: Path to TOFU database. If None, uses default location
                 (~/.nauyaca/tofu.db).
+            client_cert: Path to client certificate file (PEM format) for
+                authentication with servers that require client certificates.
+            client_key: Path to client private key file (PEM format). Required
+                if client_cert is provided.
         """
         self.timeout = timeout
         self.max_redirects = max_redirects
         self.verify_ssl = verify_ssl
         self.trust_on_first_use = trust_on_first_use
+
+        # Validate client cert/key pair
+        if client_cert and not client_key:
+            raise ValueError("client_key is required when client_cert is provided")
+        if client_key and not client_cert:
+            raise ValueError("client_cert is required when client_key is provided")
 
         # Initialize TOFU database if needed
         if self.trust_on_first_use:
@@ -82,6 +94,8 @@ class GeminiClient:
                 self.ssl_context = create_client_context(
                     verify_mode=ssl.CERT_REQUIRED,
                     check_hostname=True,
+                    certfile=str(client_cert) if client_cert else None,
+                    keyfile=str(client_key) if client_key else None,
                 )
             else:
                 # TOFU mode or testing mode - accept all certificates
@@ -89,6 +103,8 @@ class GeminiClient:
                 self.ssl_context = create_client_context(
                     verify_mode=ssl.CERT_NONE,
                     check_hostname=False,
+                    certfile=str(client_cert) if client_cert else None,
+                    keyfile=str(client_key) if client_key else None,
                 )
         else:
             self.ssl_context = ssl_context

@@ -291,3 +291,68 @@ class TestGeminiClient:
         assert sent_url == "gemini://example.com/", (
             f"Expected normalized URL with trailing /, got: {sent_url}"
         )
+
+
+class TestClientCertificates:
+    """Tests for client certificate support."""
+
+    def test_client_cert_requires_client_key(self):
+        """Test that client_cert requires client_key."""
+        with pytest.raises(ValueError, match="client_key is required"):
+            GeminiClient(client_cert="/path/to/cert.pem")
+
+    def test_client_key_requires_client_cert(self):
+        """Test that client_key requires client_cert."""
+        with pytest.raises(ValueError, match="client_cert is required"):
+            GeminiClient(client_key="/path/to/key.pem")
+
+    def test_client_with_cert_creates_context(self, tmp_path):
+        """Test that client with cert creates SSL context correctly."""
+        from nauyaca.security.certificates import generate_self_signed_cert
+
+        # Generate test cert
+        cert_pem, key_pem = generate_self_signed_cert("test-client")
+        cert_file = tmp_path / "client.pem"
+        key_file = tmp_path / "client.key"
+        cert_file.write_bytes(cert_pem)
+        key_file.write_bytes(key_pem)
+
+        # Create client with cert
+        client = GeminiClient(
+            client_cert=cert_file,
+            client_key=key_file,
+            verify_ssl=False,
+            trust_on_first_use=False,
+        )
+
+        # Verify context was created
+        assert client.ssl_context is not None
+
+    def test_client_with_string_cert_paths(self, tmp_path):
+        """Test that client accepts string paths for cert and key."""
+        from nauyaca.security.certificates import generate_self_signed_cert
+
+        # Generate test cert
+        cert_pem, key_pem = generate_self_signed_cert("test-client")
+        cert_file = tmp_path / "client.pem"
+        key_file = tmp_path / "client.key"
+        cert_file.write_bytes(cert_pem)
+        key_file.write_bytes(key_pem)
+
+        # Create client with string paths
+        client = GeminiClient(
+            client_cert=str(cert_file),
+            client_key=str(key_file),
+            verify_ssl=False,
+            trust_on_first_use=False,
+        )
+
+        assert client.ssl_context is not None
+
+    def test_client_no_cert_is_valid(self):
+        """Test that client without cert is valid."""
+        client = GeminiClient(
+            verify_ssl=False,
+            trust_on_first_use=False,
+        )
+        assert client.ssl_context is not None

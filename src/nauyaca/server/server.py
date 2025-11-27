@@ -13,6 +13,7 @@ from ..content.templates import error_404
 from ..protocol.response import GeminiResponse
 from ..protocol.status import StatusCode
 from ..security.certificates import generate_self_signed_cert
+from ..security.pyopenssl_tls import create_pyopenssl_server_context
 from ..security.tls import create_server_context
 from ..utils.logging import configure_logging, get_logger
 from .config import ServerConfig
@@ -28,6 +29,7 @@ from .middleware import (
 )
 from .protocol import GeminiServerProtocol
 from .router import Router
+from .tls_protocol import TLSServerProtocol
 
 
 async def start_server(
@@ -127,18 +129,65 @@ async def start_server(
 
     router.add_route("/", static_handler.handle, route_type=RouteType.PREFIX)
 
-    # Create SSL context
-    if config.certfile and config.keyfile:
-        ssl_context = create_server_context(str(config.certfile), str(config.keyfile))
-        logger.info(
-            "tls_configured",
-            certfile=str(config.certfile),
-            keyfile=str(config.keyfile),
-        )
+    # Determine if we need to request client certificates
+    # (needed for CertificateAuth middleware to work)
+    request_client_cert = certificate_auth_config is not None
+
+    # Determine if we need PyOpenSSL for client certificate support
+    # PyOpenSSL is required because Python's ssl module with OpenSSL 3.x
+    # silently rejects self-signed client certificates
+    use_pyopenssl = request_client_cert
+
+    # Create SSL context (only used when NOT using PyOpenSSL)
+    ssl_context: ssl.SSLContext | None = None
+    pyopenssl_ctx = None
+
+    if use_pyopenssl:
+        # Use PyOpenSSL for proper self-signed client cert support
+        if config.certfile and config.keyfile:
+            pyopenssl_ctx = create_pyopenssl_server_context(
+                str(config.certfile),
+                str(config.keyfile),
+                request_client_cert=True,
+            )
+            logger.info(
+                "tls_configured",
+                certfile=str(config.certfile),
+                keyfile=str(config.keyfile),
+                request_client_cert=True,
+                tls_backend="pyopenssl",
+            )
+        else:
+            # For testing: create self-signed certificate with PyOpenSSL
+            pyopenssl_ctx = _create_self_signed_pyopenssl_context()
+            logger.warning(
+                "using_self_signed_certificate",
+                mode="testing_only",
+                tls_backend="pyopenssl",
+            )
     else:
-        # For testing: create self-signed certificate
-        ssl_context = _create_self_signed_context()
-        logger.warning("using_self_signed_certificate", mode="testing_only")
+        # Standard ssl module is fine when not requesting client certs
+        if config.certfile and config.keyfile:
+            ssl_context = create_server_context(
+                str(config.certfile),
+                str(config.keyfile),
+                request_client_cert=False,
+            )
+            logger.info(
+                "tls_configured",
+                certfile=str(config.certfile),
+                keyfile=str(config.keyfile),
+                request_client_cert=False,
+                tls_backend="stdlib",
+            )
+        else:
+            # For testing: create self-signed certificate
+            ssl_context = _create_self_signed_context(request_client_cert=False)
+            logger.warning(
+                "using_self_signed_certificate",
+                mode="testing_only",
+                tls_backend="stdlib",
+            )
 
     # Set up middleware chain
     middlewares: list[Any] = []
@@ -184,12 +233,25 @@ async def start_server(
     loop = asyncio.get_running_loop()
 
     # Create server using Protocol pattern
-    server = await loop.create_server(
-        lambda: GeminiServerProtocol(router.route, middleware_chain),
-        config.host,
-        config.port,
-        ssl=ssl_context,
-    )
+    if use_pyopenssl and pyopenssl_ctx is not None:
+        # Use PyOpenSSL TLS wrapper - NO ssl= parameter since TLS is handled manually
+        server = await loop.create_server(
+            lambda: TLSServerProtocol(
+                lambda: GeminiServerProtocol(router.route, middleware_chain),
+                pyopenssl_ctx,
+            ),
+            config.host,
+            config.port,
+            # NO ssl= parameter - TLS handled by TLSServerProtocol
+        )
+    else:
+        # Standard ssl module
+        server = await loop.create_server(
+            lambda: GeminiServerProtocol(router.route, middleware_chain),
+            config.host,
+            config.port,
+            ssl=ssl_context,
+        )
 
     logger.info(
         "server_started",
@@ -203,10 +265,13 @@ async def start_server(
         await server.serve_forever()
 
 
-def _create_self_signed_context() -> ssl.SSLContext:
+def _create_self_signed_context(request_client_cert: bool = False) -> ssl.SSLContext:
     """Create a self-signed SSL context for testing.
 
     WARNING: This is for testing only! Do not use in production.
+
+    Args:
+        request_client_cert: Whether to request client certificates.
 
     Returns:
         An SSL context with a self-signed certificate.
@@ -235,8 +300,60 @@ def _create_self_signed_context() -> ssl.SSLContext:
         print(f"[Server] Certificate: {certfile.name}")
         print(f"[Server] Key: {keyfile.name}")
 
-        ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        # Use SSLContext directly to avoid loading system CA certs
+        # This allows self-signed client certificates to be accepted
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ssl_context.load_cert_chain(certfile.name, keyfile.name)
         ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
 
+        # Configure client certificate handling
+        if request_client_cert:
+            ssl_context.verify_mode = ssl.CERT_OPTIONAL
+        else:
+            ssl_context.verify_mode = ssl.CERT_NONE
+
         return ssl_context
+
+
+def _create_self_signed_pyopenssl_context() -> Any:
+    """Create a self-signed PyOpenSSL context for testing with client certs.
+
+    WARNING: This is for testing only! Do not use in production.
+
+    This function creates a PyOpenSSL SSL.Context with a self-signed certificate,
+    configured to accept any client certificate (including self-signed).
+
+    Returns:
+        A PyOpenSSL SSL.Context with a self-signed certificate.
+    """
+    # Generate self-signed certificate using cryptography library
+    try:
+        cert_pem, key_pem = generate_self_signed_cert(
+            hostname="localhost",
+            key_size=2048,
+            valid_days=365,
+        )
+    except Exception as e:
+        raise RuntimeError(f"Failed to generate self-signed certificate: {e}") from e
+
+    # Write to temporary files (PyOpenSSL requires file paths)
+    with (
+        tempfile.NamedTemporaryFile(suffix=".pem", delete=False, mode="wb") as certfile,
+        tempfile.NamedTemporaryFile(suffix=".key", delete=False, mode="wb") as keyfile,
+    ):
+        certfile.write(cert_pem)
+        keyfile.write(key_pem)
+        certfile.flush()
+        keyfile.flush()
+
+        print("[Server] WARNING: Using self-signed certificate (testing only!)")
+        print(f"[Server] Certificate: {certfile.name}")
+        print(f"[Server] Key: {keyfile.name}")
+        print("[Server] Using PyOpenSSL for client certificate support")
+
+        # Create PyOpenSSL context that accepts any client certificate
+        return create_pyopenssl_server_context(
+            certfile.name,
+            keyfile.name,
+            request_client_cert=True,
+        )

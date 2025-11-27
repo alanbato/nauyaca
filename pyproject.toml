@@ -26,6 +26,7 @@ classifiers = [
 
 dependencies = [
     "cryptography>=46.0.3",
+    "pyopenssl>=24.0.0",
     "rich>=14.2.0",
     "structlog>=25.5.0",
     "tomli-w>=1.0.0",
@@ -151,3 +152,7 @@ strict_equality = true
 module = "tests.*"
 disallow_untyped_defs = false
 disallow_untyped_decorators = false
+
+[[tool.mypy.overrides]]
+module = "OpenSSL.*"
+ignore_missing_imports = true
