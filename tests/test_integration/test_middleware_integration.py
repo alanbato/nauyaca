@@ -13,7 +13,12 @@ import pytest
 from nauyaca.client.session import GeminiClient
 from nauyaca.security.certificates import generate_self_signed_cert
 from nauyaca.server.config import ServerConfig
-from nauyaca.server.middleware import AccessControl, MiddlewareChain, RateLimiter
+from nauyaca.server.middleware import (
+    AccessControl,
+    CertificateAuthConfig,
+    MiddlewareChain,
+    RateLimiter,
+)
 from nauyaca.server.protocol import GeminiServerProtocol
 from nauyaca.server.server import start_server
 
@@ -457,3 +462,157 @@ async def test_error_responses_with_middleware(server_with_rate_limiting):
         assert not_found_count > 0, (
             "Should have received some NOT FOUND responses before rate limiting"
         )
+
+
+# Certificate Authentication Tests
+
+
+@pytest.fixture
+async def server_with_cert_required(unused_tcp_port, tmp_path):
+    """Start server with client certificate required.
+
+    Yields:
+        int: Port number
+    """
+    # Create test capsule
+    capsule = tmp_path / "capsule"
+    create_test_capsule(capsule)
+
+    # Generate self-signed certificate
+    cert_pem, key_pem = generate_self_signed_cert("localhost")
+    cert_file = tmp_path / "cert.pem"
+    key_file = tmp_path / "key.pem"
+    cert_file.write_bytes(cert_pem)
+    key_file.write_bytes(key_pem)
+
+    # Create server configuration with certificate auth
+    config = ServerConfig(
+        host="127.0.0.1",
+        port=unused_tcp_port,
+        document_root=capsule,
+        certfile=cert_file,
+        keyfile=key_file,
+        enable_rate_limiting=False,
+        require_client_cert=True,
+    )
+
+    # Start server in background task with certificate auth config
+    server_task = asyncio.create_task(
+        start_server(
+            config,
+            enable_rate_limiting=False,
+            certificate_auth_config=config.get_certificate_auth_config(),
+        )
+    )
+
+    # Wait for server to start
+    await asyncio.sleep(0.5)
+
+    yield unused_tcp_port
+
+    # Cleanup: cancel server task
+    server_task.cancel()
+    try:
+        await server_task
+    except asyncio.CancelledError:
+        pass
+
+
+@pytest.mark.integration
+@pytest.mark.network
+async def test_cert_auth_rejects_without_cert(server_with_cert_required):
+    """Test that server returns 60 when client cert is required but not provided."""
+    port = server_with_cert_required
+
+    async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
+        # Without a client certificate, should get status 60
+        response = await client.get(f"gemini://127.0.0.1:{port}/", follow_redirects=False)
+        assert response.status == 60
+        assert "certificate" in response.meta.lower()
+
+
+# File Size Limit Tests
+
+
+@pytest.fixture
+async def server_with_small_file_limit(unused_tcp_port, tmp_path):
+    """Start server with very small file size limit.
+
+    Yields:
+        tuple[int, Path]: Port number and capsule path
+    """
+    # Create test capsule
+    capsule = tmp_path / "capsule"
+    capsule.mkdir(parents=True, exist_ok=True)
+
+    # Create a small file (under limit)
+    (capsule / "small.gmi").write_text("# Small file\n\nThis is small.\n")
+
+    # Create a large file (over limit - 1KB limit, file is 2KB)
+    (capsule / "large.gmi").write_text("x" * 2048)
+
+    # Generate self-signed certificate
+    cert_pem, key_pem = generate_self_signed_cert("localhost")
+    cert_file = tmp_path / "cert.pem"
+    key_file = tmp_path / "key.pem"
+    cert_file.write_bytes(cert_pem)
+    key_file.write_bytes(key_pem)
+
+    # Create server configuration with small file size limit
+    config = ServerConfig(
+        host="127.0.0.1",
+        port=unused_tcp_port,
+        document_root=capsule,
+        certfile=cert_file,
+        keyfile=key_file,
+        enable_rate_limiting=False,
+        max_file_size=1024,  # 1KB limit
+    )
+
+    # Start server with explicit max_file_size
+    server_task = asyncio.create_task(
+        start_server(
+            config,
+            enable_rate_limiting=False,
+            max_file_size=config.max_file_size,
+        )
+    )
+
+    # Wait for server to start
+    await asyncio.sleep(0.5)
+
+    yield unused_tcp_port
+
+    # Cleanup: cancel server task
+    server_task.cancel()
+    try:
+        await server_task
+    except asyncio.CancelledError:
+        pass
+
+
+@pytest.mark.integration
+@pytest.mark.network
+async def test_file_size_limit_allows_small_files(server_with_small_file_limit):
+    """Test that files under the size limit are served."""
+    port = server_with_small_file_limit
+
+    async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
+        response = await client.get(f"gemini://127.0.0.1:{port}/small.gmi")
+        assert response.status == 20
+        assert "Small file" in response.body
+
+
+@pytest.mark.integration
+@pytest.mark.network
+async def test_file_size_limit_rejects_large_files(server_with_small_file_limit):
+    """Test that files over the size limit are rejected."""
+    port = server_with_small_file_limit
+
+    async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
+        response = await client.get(
+            f"gemini://127.0.0.1:{port}/large.gmi", follow_redirects=False
+        )
+        # Should get a 50 PERMANENT FAILURE (file too large)
+        assert response.status == 50
+        assert "too large" in response.meta.lower() or "size" in response.meta.lower()

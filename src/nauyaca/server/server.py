@@ -20,6 +20,8 @@ from .handler import StaticFileHandler
 from .middleware import (
     AccessControl,
     AccessControlConfig,
+    CertificateAuth,
+    CertificateAuthConfig,
     MiddlewareChain,
     RateLimitConfig,
     RateLimiter,
@@ -37,6 +39,9 @@ async def start_server(
     enable_rate_limiting: bool = True,
     rate_limit_config: RateLimitConfig | None = None,
     access_control_config: AccessControlConfig | None = None,
+    certificate_auth_config: CertificateAuthConfig | None = None,
+    hash_ips: bool | None = None,
+    max_file_size: int | None = None,
 ) -> None:
     """Start a Gemini server with the given configuration.
 
@@ -52,6 +57,9 @@ async def start_server(
         enable_rate_limiting: Enable rate limiting middleware.
         rate_limit_config: Rate limiting configuration. Uses defaults if None.
         access_control_config: Access control configuration. None to disable.
+        certificate_auth_config: Certificate auth configuration. None to disable.
+        hash_ips: Hash client IPs in logs. If None, uses config.hash_client_ips.
+        max_file_size: Maximum file size to serve. If None, uses config.max_file_size.
 
     Raises:
         ValueError: If configuration is invalid.
@@ -69,17 +77,32 @@ async def start_server(
         ... )
         >>> asyncio.run(start_server(config))
     """
+    # Resolve hash_ips from config if not explicitly set
+    effective_hash_ips = hash_ips if hash_ips is not None else config.hash_client_ips
+
     # Configure logging first
-    configure_logging(log_level=log_level, log_file=log_file, json_logs=json_logs)
+    configure_logging(
+        log_level=log_level,
+        log_file=log_file,
+        json_logs=json_logs,
+        hash_ips=effective_hash_ips,
+    )
     logger = get_logger(__name__)
 
     # Validate configuration
     config.validate()
 
+    # Resolve max_file_size from config if not explicitly set
+    effective_max_file_size = (
+        max_file_size if max_file_size is not None else config.max_file_size
+    )
+
     # Create router and static file handler
     router = Router()
     static_handler = StaticFileHandler(
-        config.document_root, enable_directory_listing=enable_directory_listing
+        config.document_root,
+        enable_directory_listing=enable_directory_listing,
+        max_file_size=effective_max_file_size,
     )
 
     # Set up default 404 handler
@@ -119,6 +142,17 @@ async def start_server(
 
     # Set up middleware chain
     middlewares: list[Any] = []
+
+    # Add certificate auth if configured (check this first - before IP-based checks)
+    if certificate_auth_config:
+        cert_auth = CertificateAuth(certificate_auth_config)
+        middlewares.append(cert_auth)
+        logger.info(
+            "certificate_auth_enabled",
+            require_cert=certificate_auth_config.require_cert,
+            has_fingerprint_whitelist=certificate_auth_config.allowed_fingerprints
+            is not None,
+        )
 
     # Add access control if configured
     if access_control_config:

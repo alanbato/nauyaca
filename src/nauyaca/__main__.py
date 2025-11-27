@@ -261,6 +261,21 @@ def serve(
         "--json-logs",
         help="Output logs in JSON format (useful for log aggregation)",
     ),
+    hash_ips: bool = typer.Option(
+        True,
+        "--hash-ips/--no-hash-ips",
+        help="Hash client IP addresses in logs for privacy (default: enabled)",
+    ),
+    max_file_size: int | None = typer.Option(
+        None,
+        "--max-file-size",
+        help="Maximum file size to serve in bytes (default: 100 MiB)",
+    ),
+    require_client_cert: bool = typer.Option(
+        False,
+        "--require-client-cert",
+        help="Require client certificates for all connections (status 60 if missing)",
+    ),
 ) -> None:
     """Start a Gemini server to serve files from a directory.
 
@@ -323,6 +338,14 @@ def serve(
                     keyfile=key,
                 )
 
+            # Build certificate auth config from CLI flag or config file
+            cert_auth_config = config.get_certificate_auth_config()
+            if require_client_cert and cert_auth_config is None:
+                # CLI flag overrides - create minimal config requiring cert
+                from .server.middleware import CertificateAuthConfig
+
+                cert_auth_config = CertificateAuthConfig(require_cert=True)
+
             # Start server with all configuration
             await start_server(
                 config,
@@ -333,6 +356,9 @@ def serve(
                 enable_rate_limiting=config.enable_rate_limiting,
                 rate_limit_config=config.get_rate_limit_config(),
                 access_control_config=config.get_access_control_config(),
+                certificate_auth_config=cert_auth_config,
+                hash_ips=hash_ips,
+                max_file_size=max_file_size,
             )
 
         except ValueError as e:
