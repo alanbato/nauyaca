@@ -10,6 +10,7 @@ from nauyaca.server.middleware import (
     AccessControlConfig,
     CertificateAuth,
     CertificateAuthConfig,
+    CertificateAuthPathRule,
     MiddlewareChain,
     RateLimitConfig,
     RateLimiter,
@@ -324,100 +325,252 @@ async def test_rate_limiter_refill_allows_more():
     assert allow
 
 
-# Certificate Authentication Tests
+# Path-Based Certificate Authentication Tests
 
 
 @pytest.mark.asyncio
-async def test_certificate_auth_no_requirements():
-    """Test certificate auth with no requirements allows all requests."""
-    config = CertificateAuthConfig(require_cert=False, allowed_fingerprints=None)
+async def test_certificate_auth_no_path_rules():
+    """Test certificate auth with no path rules allows all requests."""
+    config = CertificateAuthConfig(path_rules=[])
     auth = CertificateAuth(config)
 
-    # No cert provided - should allow
+    # Any request should be allowed when there are no rules
     allow, _ = await auth.process_request("gemini://test/", "192.168.1.1", None)
     assert allow
 
-    # Cert provided - should also allow
+    allow, _ = await auth.process_request("gemini://test/app/", "192.168.1.1", None)
+    assert allow
+
     allow, _ = await auth.process_request(
-        "gemini://test/", "192.168.1.1", "sha256:abc123"
+        "gemini://test/admin/", "192.168.1.1", "sha256:abc123"
     )
     assert allow
 
 
 @pytest.mark.asyncio
-async def test_certificate_auth_require_cert():
-    """Test certificate auth when certificate is required."""
-    config = CertificateAuthConfig(require_cert=True, allowed_fingerprints=None)
+async def test_certificate_auth_protected_path_without_cert():
+    """Test request to protected path without cert returns 60."""
+    config = CertificateAuthConfig(
+        path_rules=[
+            CertificateAuthPathRule(prefix="/app/", require_cert=True),
+        ]
+    )
     auth = CertificateAuth(config)
 
-    # No cert provided - should deny with status 60
-    allow, response = await auth.process_request("gemini://test/", "192.168.1.1", None)
-    assert not allow
-    assert "60" in response
-
-    # Cert provided - should allow (any cert is fine)
-    allow, _ = await auth.process_request(
-        "gemini://test/", "192.168.1.1", "sha256:abc123"
-    )
-    assert allow
-
-
-@pytest.mark.asyncio
-async def test_certificate_auth_fingerprint_whitelist():
-    """Test certificate auth with fingerprint whitelist."""
-    allowed = {"sha256:trusted1", "sha256:trusted2"}
-    config = CertificateAuthConfig(require_cert=False, allowed_fingerprints=allowed)
-    auth = CertificateAuth(config)
-
-    # No cert - should deny (whitelist requires cert)
-    allow, response = await auth.process_request("gemini://test/", "192.168.1.1", None)
-    assert not allow
-    assert "60" in response
-
-    # Trusted cert - should allow
-    allow, _ = await auth.process_request(
-        "gemini://test/", "192.168.1.1", "sha256:trusted1"
-    )
-    assert allow
-
-    # Untrusted cert - should deny with status 61
+    # Request to protected path without cert - status 60
     allow, response = await auth.process_request(
-        "gemini://test/", "192.168.1.1", "sha256:untrusted"
+        "gemini://test/app/profile", "192.168.1.1", None
+    )
+    assert not allow
+    assert "60" in response
+
+
+@pytest.mark.asyncio
+async def test_certificate_auth_protected_path_with_cert():
+    """Test request to protected path with cert is allowed."""
+    config = CertificateAuthConfig(
+        path_rules=[
+            CertificateAuthPathRule(prefix="/app/", require_cert=True),
+        ]
+    )
+    auth = CertificateAuth(config)
+
+    # Request to protected path with cert - allowed
+    allow, _ = await auth.process_request(
+        "gemini://test/app/profile", "192.168.1.1", "sha256:abc123"
+    )
+    assert allow
+
+
+@pytest.mark.asyncio
+async def test_certificate_auth_unprotected_path_without_cert():
+    """Test request to unprotected path without cert is allowed."""
+    config = CertificateAuthConfig(
+        path_rules=[
+            CertificateAuthPathRule(prefix="/app/", require_cert=True),
+        ]
+    )
+    auth = CertificateAuth(config)
+
+    # Request to unprotected path (no matching rule) - allowed
+    allow, _ = await auth.process_request(
+        "gemini://test/public/page", "192.168.1.1", None
+    )
+    assert allow
+
+    # Root path - also allowed (no matching rule)
+    allow, _ = await auth.process_request("gemini://test/", "192.168.1.1", None)
+    assert allow
+
+
+@pytest.mark.asyncio
+async def test_certificate_auth_fingerprint_whitelist_for_path():
+    """Test certificate auth with fingerprint whitelist for a path."""
+    allowed = {"sha256:admin1", "sha256:admin2"}
+    config = CertificateAuthConfig(
+        path_rules=[
+            CertificateAuthPathRule(
+                prefix="/admin/", require_cert=False, allowed_fingerprints=allowed
+            ),
+        ]
+    )
+    auth = CertificateAuth(config)
+
+    # No cert for /admin/ - status 60 (whitelist requires cert)
+    allow, response = await auth.process_request(
+        "gemini://test/admin/users", "192.168.1.1", None
+    )
+    assert not allow
+    assert "60" in response
+
+    # Trusted cert for /admin/ - allowed
+    allow, _ = await auth.process_request(
+        "gemini://test/admin/users", "192.168.1.1", "sha256:admin1"
+    )
+    assert allow
+
+    # Untrusted cert for /admin/ - status 61
+    allow, response = await auth.process_request(
+        "gemini://test/admin/users", "192.168.1.1", "sha256:untrusted"
     )
     assert not allow
     assert "61" in response
 
+    # Other paths are not affected
+    allow, _ = await auth.process_request("gemini://test/public/", "192.168.1.1", None)
+    assert allow
+
+
+@pytest.mark.asyncio
+async def test_certificate_auth_first_match_wins():
+    """Test that first matching path rule takes precedence."""
+    config = CertificateAuthConfig(
+        path_rules=[
+            # More specific rule first
+            CertificateAuthPathRule(prefix="/app/public/", require_cert=False),
+            # Less specific rule second
+            CertificateAuthPathRule(prefix="/app/", require_cert=True),
+        ]
+    )
+    auth = CertificateAuth(config)
+
+    # /app/public/ matches first rule (no cert required)
+    allow, _ = await auth.process_request(
+        "gemini://test/app/public/page", "192.168.1.1", None
+    )
+    assert allow
+
+    # /app/secret/ matches second rule (cert required)
+    allow, response = await auth.process_request(
+        "gemini://test/app/secret/", "192.168.1.1", None
+    )
+    assert not allow
+    assert "60" in response
+
+
+@pytest.mark.asyncio
+async def test_certificate_auth_multiple_protected_paths():
+    """Test multiple protected paths with different requirements."""
+    admin_fingerprints = {"sha256:admin"}
+    config = CertificateAuthConfig(
+        path_rules=[
+            CertificateAuthPathRule(prefix="/app/", require_cert=True),
+            CertificateAuthPathRule(
+                prefix="/admin/",
+                require_cert=True,
+                allowed_fingerprints=admin_fingerprints,
+            ),
+        ]
+    )
+    auth = CertificateAuth(config)
+
+    # /app/ requires any cert
+    allow, _ = await auth.process_request(
+        "gemini://test/app/", "192.168.1.1", "sha256:user"
+    )
+    assert allow
+
+    # /admin/ requires specific cert
+    allow, response = await auth.process_request(
+        "gemini://test/admin/", "192.168.1.1", "sha256:user"
+    )
+    assert not allow
+    assert "61" in response
+
+    allow, _ = await auth.process_request(
+        "gemini://test/admin/", "192.168.1.1", "sha256:admin"
+    )
+    assert allow
+
+
+@pytest.mark.asyncio
+async def test_certificate_auth_path_extraction():
+    """Test that path is correctly extracted from various URL formats."""
+    config = CertificateAuthConfig(
+        path_rules=[
+            CertificateAuthPathRule(prefix="/app/", require_cert=True),
+        ]
+    )
+    auth = CertificateAuth(config)
+
+    # Various URL formats
+    test_cases = [
+        ("gemini://example.com/app/test", False),  # Protected
+        ("gemini://example.com:1965/app/test", False),  # With port
+        ("gemini://example.com/app/test?query=value", False),  # With query
+        ("gemini://example.com/other/path", True),  # Not protected
+        ("gemini://example.com/", True),  # Root
+    ]
+
+    for url, should_allow in test_cases:
+        allow, _ = await auth.process_request(url, "192.168.1.1", None)
+        assert allow == should_allow, (
+            f"URL {url} should {'allow' if should_allow else 'deny'}"
+        )
+
 
 @pytest.mark.asyncio
 async def test_certificate_auth_combined_require_and_whitelist():
-    """Test certificate auth with both require and whitelist."""
+    """Test path rule with both require_cert and fingerprint whitelist."""
     allowed = {"sha256:authorized"}
-    config = CertificateAuthConfig(require_cert=True, allowed_fingerprints=allowed)
+    config = CertificateAuthConfig(
+        path_rules=[
+            CertificateAuthPathRule(
+                prefix="/secure/", require_cert=True, allowed_fingerprints=allowed
+            ),
+        ]
+    )
     auth = CertificateAuth(config)
 
     # No cert - status 60
-    allow, response = await auth.process_request("gemini://test/", "192.168.1.1", None)
+    allow, response = await auth.process_request(
+        "gemini://test/secure/data", "192.168.1.1", None
+    )
     assert not allow
     assert "60" in response
 
     # Wrong cert - status 61
     allow, response = await auth.process_request(
-        "gemini://test/", "192.168.1.1", "sha256:wrong"
+        "gemini://test/secure/data", "192.168.1.1", "sha256:wrong"
     )
     assert not allow
     assert "61" in response
 
     # Correct cert - allowed
     allow, _ = await auth.process_request(
-        "gemini://test/", "192.168.1.1", "sha256:authorized"
+        "gemini://test/secure/data", "192.168.1.1", "sha256:authorized"
     )
     assert allow
 
 
 @pytest.mark.asyncio
 async def test_certificate_auth_in_middleware_chain():
-    """Test certificate auth works in middleware chain."""
-    cert_config = CertificateAuthConfig(require_cert=True)
+    """Test path-based certificate auth works in middleware chain."""
+    cert_config = CertificateAuthConfig(
+        path_rules=[
+            CertificateAuthPathRule(prefix="/app/", require_cert=True),
+        ]
+    )
     access_config = AccessControlConfig(default_allow=True)
 
     cert_auth = CertificateAuth(cert_config)
@@ -425,11 +578,19 @@ async def test_certificate_auth_in_middleware_chain():
 
     chain = MiddlewareChain([cert_auth, access])
 
-    # No cert - should fail at cert auth
-    allow, response = await chain.process_request("gemini://test/", "192.168.1.1", None)
+    # Public path - should pass
+    allow, _ = await chain.process_request("gemini://test/", "192.168.1.1", None)
+    assert allow
+
+    # Protected path without cert - should fail at cert auth
+    allow, response = await chain.process_request(
+        "gemini://test/app/page", "192.168.1.1", None
+    )
     assert not allow
     assert "60" in response
 
-    # With cert - should pass both middlewares
-    allow, _ = await chain.process_request("gemini://test/", "192.168.1.1", "sha256:any")
+    # Protected path with cert - should pass both middlewares
+    allow, _ = await chain.process_request(
+        "gemini://test/app/page", "192.168.1.1", "sha256:any"
+    )
     assert allow

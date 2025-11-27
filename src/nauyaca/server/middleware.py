@@ -6,7 +6,7 @@ they reach handlers.
 
 import asyncio
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from ipaddress import (
     IPv4Network,
     IPv6Network,
@@ -14,6 +14,7 @@ from ipaddress import (
     ip_network,
 )
 from typing import Protocol
+from urllib.parse import urlparse
 
 
 class Middleware(Protocol):
@@ -283,27 +284,43 @@ class AccessControl:
 
 
 @dataclass
-class CertificateAuthConfig:
-    """Configuration for certificate-based authentication."""
+class CertificateAuthPathRule:
+    """Certificate auth rule for a specific path prefix.
 
-    # Require client certificate (returns status 60 if missing)
+    Per Gemini application best practices, certificate requirements
+    are typically activated for specific URL prefixes (e.g., /app/, /admin/)
+    rather than globally, allowing public and authenticated content to coexist.
+    """
+
+    prefix: str
     require_cert: bool = False
-
-    # Whitelist of allowed certificate fingerprints (optional)
-    # If set, only certificates with matching fingerprints are allowed
     allowed_fingerprints: set[str] | None = None
+
+
+@dataclass
+class CertificateAuthConfig:
+    """Configuration for path-based certificate authentication.
+
+    Path rules are checked in order - the first matching rule applies.
+    If no rule matches a request path, the request is allowed without
+    certificate requirements.
+    """
+
+    path_rules: list[CertificateAuthPathRule] = field(default_factory=list)
 
 
 class CertificateAuth:
     """Certificate-based authentication middleware.
 
     Can require client certificates (status 60) and/or validate
-    against a whitelist of allowed certificate fingerprints (status 61).
+    against a whitelist of allowed certificate fingerprints (status 61)
+    on a per-path basis.
 
     Per Gemini application best practices, this enables:
     - Account registration flows using client certificates
-    - Certificate-based access control
+    - Certificate-based access control for specific paths
     - User identity verification via certificate fingerprints
+    - Mixed public/authenticated content serving
     """
 
     def __init__(self, config: CertificateAuthConfig | None = None):
@@ -314,13 +331,42 @@ class CertificateAuth:
         """
         self.config = config or CertificateAuthConfig()
 
+    def _extract_path(self, request_url: str) -> str:
+        """Extract path from a Gemini URL.
+
+        Args:
+            request_url: The full request URL.
+
+        Returns:
+            The path component of the URL, or "/" if none.
+        """
+        try:
+            parsed = urlparse(request_url)
+            return parsed.path or "/"
+        except Exception:
+            return "/"
+
+    def _find_matching_rule(self, path: str) -> CertificateAuthPathRule | None:
+        """Find the first matching path rule.
+
+        Args:
+            path: The request path.
+
+        Returns:
+            The first matching rule, or None if no rule matches.
+        """
+        for rule in self.config.path_rules:
+            if path.startswith(rule.prefix):
+                return rule
+        return None
+
     async def process_request(
         self,
         request_url: str,
         client_ip: str,
         client_cert_fingerprint: str | None = None,
     ) -> tuple[bool, str | None]:
-        """Process request with certificate authentication.
+        """Process request with path-based certificate authentication.
 
         Args:
             request_url: The requested URL.
@@ -330,17 +376,26 @@ class CertificateAuth:
         Returns:
             Tuple of (allow, error_response).
         """
-        # Check if certificate is required but missing
-        if self.config.require_cert and not client_cert_fingerprint:
+        # Extract path from URL
+        path = self._extract_path(request_url)
+
+        # Find matching rule (first match wins)
+        rule = self._find_matching_rule(path)
+
+        if rule is None:
+            # No rule matches - allow without cert
+            return True, None
+
+        # Apply rule's requirements
+        if rule.require_cert and client_cert_fingerprint is None:
             return False, "60 Client certificate required\r\n"
 
-        # Check fingerprint whitelist if configured
-        if self.config.allowed_fingerprints is not None:
-            if not client_cert_fingerprint:
-                # No cert provided but whitelist requires one
+        if rule.allowed_fingerprints is not None:
+            if client_cert_fingerprint is None:
+                # Whitelist requires a cert
                 return False, "60 Client certificate required\r\n"
 
-            if client_cert_fingerprint not in self.config.allowed_fingerprints:
+            if client_cert_fingerprint not in rule.allowed_fingerprints:
                 return False, "61 Certificate not authorized\r\n"
 
         return True, None

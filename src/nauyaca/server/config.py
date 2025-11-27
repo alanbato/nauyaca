@@ -6,9 +6,15 @@ This module provides configuration data structures for the Gemini server.
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from ..protocol.constants import DEFAULT_MAX_FILE_SIZE, DEFAULT_PORT
-from .middleware import AccessControlConfig, CertificateAuthConfig, RateLimitConfig
+from .middleware import (
+    AccessControlConfig,
+    CertificateAuthConfig,
+    CertificateAuthPathRule,
+    RateLimitConfig,
+)
 
 
 @dataclass
@@ -52,9 +58,9 @@ class ServerConfig:
     # File serving limits
     max_file_size: int = DEFAULT_MAX_FILE_SIZE
 
-    # Certificate authentication
-    require_client_cert: bool = False
-    allowed_cert_fingerprints: list[str] | None = None
+    # Path-based certificate authentication
+    # List of dicts with 'prefix', 'require_cert', and optional 'allowed_fingerprints'
+    certificate_auth_paths: list[dict[str, Any]] | None = None
 
     # Logging/privacy
     hash_client_ips: bool = True
@@ -133,22 +139,26 @@ class ServerConfig:
         """Get certificate authentication configuration.
 
         Returns:
-            CertificateAuthConfig instance if cert auth is enabled, None otherwise.
+            CertificateAuthConfig instance if path rules are configured, None otherwise.
         """
-        if not self.require_client_cert and not self.allowed_cert_fingerprints:
+        if not self.certificate_auth_paths:
             return None
 
-        # Convert list to set for efficient lookups
-        fingerprints = (
-            set(self.allowed_cert_fingerprints)
-            if self.allowed_cert_fingerprints
-            else None
-        )
+        path_rules = []
+        for path_config in self.certificate_auth_paths:
+            # Convert fingerprints list to set if present
+            fingerprints_list = path_config.get("allowed_fingerprints")
+            fingerprints = set(fingerprints_list) if fingerprints_list else None
 
-        return CertificateAuthConfig(
-            require_cert=self.require_client_cert,
-            allowed_fingerprints=fingerprints,
-        )
+            path_rules.append(
+                CertificateAuthPathRule(
+                    prefix=path_config["prefix"],
+                    require_cert=path_config.get("require_cert", False),
+                    allowed_fingerprints=fingerprints,
+                )
+            )
+
+        return CertificateAuthConfig(path_rules=path_rules)
 
     @classmethod
     def from_toml(cls, path: Path) -> "ServerConfig":
@@ -203,9 +213,8 @@ class ServerConfig:
             access_control_allow_list=access_control.get("allow_list"),
             access_control_deny_list=access_control.get("deny_list"),
             access_control_default_allow=access_control.get("default_allow", True),
-            # Certificate authentication
-            require_client_cert=certificate_auth.get("require_cert", False),
-            allowed_cert_fingerprints=certificate_auth.get("allowed_fingerprints"),
+            # Path-based certificate authentication
+            certificate_auth_paths=certificate_auth.get("paths"),
             # Logging/privacy
             hash_client_ips=logging_config.get("hash_ips", True),
         )

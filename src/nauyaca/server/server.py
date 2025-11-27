@@ -131,7 +131,11 @@ async def start_server(
 
     # Determine if we need to request client certificates
     # (needed for CertificateAuth middleware to work)
-    request_client_cert = certificate_auth_config is not None
+    # PyOpenSSL is used if ANY path rule requires certificates
+    request_client_cert = certificate_auth_config is not None and any(
+        rule.require_cert or rule.allowed_fingerprints is not None
+        for rule in certificate_auth_config.path_rules
+    )
 
     # Determine if we need PyOpenSSL for client certificate support
     # PyOpenSSL is required because Python's ssl module with OpenSSL 3.x
@@ -198,9 +202,12 @@ async def start_server(
         middlewares.append(cert_auth)
         logger.info(
             "certificate_auth_enabled",
-            require_cert=certificate_auth_config.require_cert,
-            has_fingerprint_whitelist=certificate_auth_config.allowed_fingerprints
-            is not None,
+            path_rules_count=len(certificate_auth_config.path_rules),
+            paths_requiring_cert=[
+                rule.prefix
+                for rule in certificate_auth_config.path_rules
+                if rule.require_cert or rule.allowed_fingerprints is not None
+            ],
         )
 
     # Add access control if configured

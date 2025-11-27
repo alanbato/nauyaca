@@ -308,14 +308,19 @@ default_allow = false
         assert config.get_access_control_config() is None
 
     def test_certificate_auth_from_toml(self, tmp_path):
-        """Test that certificate auth config is loaded from TOML."""
+        """Test that path-based certificate auth config is loaded from TOML."""
         config_file = tmp_path / "config.toml"
         config_file.write_text(
             """
 [server]
 document_root = "."
 
-[certificate_auth]
+[[certificate_auth.paths]]
+prefix = "/app/"
+require_cert = true
+
+[[certificate_auth.paths]]
+prefix = "/admin/"
 require_cert = true
 allowed_fingerprints = ["sha256:abc123", "sha256:def456"]
 """
@@ -323,22 +328,41 @@ allowed_fingerprints = ["sha256:abc123", "sha256:def456"]
 
         config = ServerConfig.from_toml(config_file)
 
-        assert config.require_client_cert is True
-        assert config.allowed_cert_fingerprints == ["sha256:abc123", "sha256:def456"]
+        assert config.certificate_auth_paths is not None
+        assert len(config.certificate_auth_paths) == 2
+        assert config.certificate_auth_paths[0]["prefix"] == "/app/"
+        assert config.certificate_auth_paths[0]["require_cert"] is True
+        assert config.certificate_auth_paths[1]["prefix"] == "/admin/"
+        assert config.certificate_auth_paths[1]["allowed_fingerprints"] == [
+            "sha256:abc123",
+            "sha256:def456",
+        ]
 
     def test_certificate_auth_helper_method(self, tmp_path):
-        """Test get_certificate_auth_config helper method."""
+        """Test get_certificate_auth_config helper method with path rules."""
         config = ServerConfig(
             document_root=tmp_path,
-            require_client_cert=True,
-            allowed_cert_fingerprints=["sha256:test1", "sha256:test2"],
+            certificate_auth_paths=[
+                {"prefix": "/app/", "require_cert": True},
+                {
+                    "prefix": "/admin/",
+                    "require_cert": True,
+                    "allowed_fingerprints": ["sha256:test1", "sha256:test2"],
+                },
+            ],
         )
 
         cert_config = config.get_certificate_auth_config()
 
         assert cert_config is not None
-        assert cert_config.require_cert is True
-        assert cert_config.allowed_fingerprints == {"sha256:test1", "sha256:test2"}
+        assert len(cert_config.path_rules) == 2
+        assert cert_config.path_rules[0].prefix == "/app/"
+        assert cert_config.path_rules[0].require_cert is True
+        assert cert_config.path_rules[1].prefix == "/admin/"
+        assert cert_config.path_rules[1].allowed_fingerprints == {
+            "sha256:test1",
+            "sha256:test2",
+        }
 
     def test_no_certificate_auth_returns_none(self, tmp_path):
         """Test that get_certificate_auth_config returns None when not configured."""
