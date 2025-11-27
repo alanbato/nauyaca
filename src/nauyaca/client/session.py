@@ -264,6 +264,11 @@ class GeminiClient:
             if not redirect_url:
                 raise ValueError(f"Redirect response missing URL: {response.meta}")
 
+            # Only follow gemini:// redirects (per Gemini best practices)
+            # Return non-gemini redirects as-is, letting caller decide
+            if not redirect_url.startswith("gemini://"):
+                return response
+
             # Add current URL to chain and follow redirect
             redirect_chain.append(url)
             return await self._get_with_redirects(

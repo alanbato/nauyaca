@@ -7,7 +7,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..protocol.constants import DEFAULT_PORT
+from ..protocol.constants import DEFAULT_MAX_FILE_SIZE, DEFAULT_PORT
 from .middleware import AccessControlConfig, RateLimitConfig
 
 
@@ -48,6 +48,9 @@ class ServerConfig:
     access_control_allow_list: list[str] | None = None
     access_control_deny_list: list[str] | None = None
     access_control_default_allow: bool = True
+
+    # File serving limits
+    max_file_size: int = DEFAULT_MAX_FILE_SIZE
 
     def __post_init__(self) -> None:
         """Validate and normalize configuration after initialization."""
@@ -160,6 +163,7 @@ class ServerConfig:
             document_root=server.get("document_root", "."),
             certfile=server.get("certfile"),
             keyfile=server.get("keyfile"),
+            max_file_size=server.get("max_file_size", DEFAULT_MAX_FILE_SIZE),
             # Rate limiting
             enable_rate_limiting=rate_limit.get("enabled", True),
             rate_limit_capacity=rate_limit.get("capacity", 10),

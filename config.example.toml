@@ -19,6 +19,11 @@ keyfile = "key.pem"
 # certfile = "/etc/nauyaca/cert.pem"
 # keyfile = "/etc/nauyaca/key.pem"
 
+# Maximum file size to serve (in bytes)
+# Default: 104857600 (100 MiB) per Gemini best practices
+# Gemini is not designed for large file transfers
+# max_file_size = 104857600
+
 [rate_limit]
 # Enable rate limiting to prevent DoS attacks
 enabled = true

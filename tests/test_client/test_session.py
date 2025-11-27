@@ -194,6 +194,60 @@ class TestGeminiClient:
         assert response.status == 30
         assert response.meta == "gemini://example.com/other"
 
+    async def test_cross_protocol_redirect_not_followed(self):
+        """Test that redirects to non-gemini protocols are not followed.
+
+        Per Gemini best practices, clients should not follow redirects to
+        unencrypted protocols like HTTP. Instead, return the redirect response.
+        """
+        client = GeminiClient()
+
+        async def mock_fetch_http_redirect(url):
+            return GeminiResponse(
+                status=30,
+                meta="https://example.com/moved",
+                url=url,
+            )
+
+        with patch.object(client, "_get_single", new=mock_fetch_http_redirect):
+            response = await client.get("gemini://example.com/")
+
+        # Should return the redirect response without following
+        assert response.status == 30
+        assert response.meta == "https://example.com/moved"
+
+    async def test_gemini_redirect_is_followed(self):
+        """Test that redirects to gemini:// URLs are followed normally."""
+        client = GeminiClient()
+
+        call_count = [0]
+
+        async def mock_fetch(url):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # First call: redirect to another gemini URL
+                return GeminiResponse(
+                    status=30,
+                    meta="gemini://other.example.com/page",
+                    url=url,
+                )
+            else:
+                # Second call: success
+                return GeminiResponse(
+                    status=20,
+                    meta="text/gemini",
+                    body="Followed gemini redirect",
+                    url=url,
+                )
+
+        with patch.object(client, "_get_single", new=mock_fetch):
+            response = await client.get("gemini://example.com/")
+
+        # Should have followed the gemini:// redirect
+        assert response.status == 20
+        assert response.body == "Followed gemini redirect"
+        assert call_count[0] == 2
+
     async def test_client_normalizes_url_before_sending(self, mocker):
         """Test that client normalizes URL (adds trailing /) before sending to server.
 

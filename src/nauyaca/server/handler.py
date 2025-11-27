@@ -8,7 +8,11 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 from ..content.gemtext import generate_directory_listing
-from ..protocol.constants import MIME_TYPE_GEMTEXT, MIME_TYPE_PLAIN_TEXT
+from ..protocol.constants import (
+    DEFAULT_MAX_FILE_SIZE,
+    MIME_TYPE_GEMTEXT,
+    MIME_TYPE_PLAIN_TEXT,
+)
 from ..protocol.request import GeminiRequest
 from ..protocol.response import GeminiResponse
 from ..protocol.status import StatusCode
@@ -42,7 +46,8 @@ class StaticFileHandler(RequestHandler):
 
     Attributes:
         document_root: Path to the directory containing files to serve.
-        default_index: Default file to serve for directory requests.
+        default_indices: List of index filenames to try for directory requests.
+        max_file_size: Maximum file size to serve (in bytes).
 
     Examples:
         >>> handler = StaticFileHandler(Path("/var/gemini/capsule"))
@@ -53,21 +58,25 @@ class StaticFileHandler(RequestHandler):
     def __init__(
         self,
         document_root: Path | str,
-        default_index: str = "index.gmi",
+        default_indices: list[str] | None = None,
         enable_directory_listing: bool = False,
+        max_file_size: int | None = None,
     ) -> None:
         """Initialize the static file handler.
 
         Args:
             document_root: Path to the directory containing files to serve.
-            default_index: Default file to serve for directory requests
-                (default: "index.gmi").
+            default_indices: List of index filenames to try for directory requests
+                (default: ["index.gmi", "index.gemini"]).
             enable_directory_listing: If True, generate directory listings for
                 directories without an index file (default: False).
+            max_file_size: Maximum file size to serve in bytes
+                (default: 100 MiB per Gemini best practices).
         """
         self.document_root = Path(document_root).resolve()
-        self.default_index = default_index
+        self.default_indices = default_indices or ["index.gmi", "index.gemini"]
         self.enable_directory_listing = enable_directory_listing
+        self.max_file_size = max_file_size or DEFAULT_MAX_FILE_SIZE
 
         if not self.document_root.exists():
             raise ValueError(f"Document root does not exist: {self.document_root}")
@@ -93,36 +102,49 @@ class StaticFileHandler(RequestHandler):
         if not self._is_safe_path(file_path):
             return GeminiResponse(status=StatusCode.NOT_FOUND.value, meta="Not found")
 
-        # If path is a directory, try to serve the default index or generate listing
+        # If path is a directory, try to serve an index file or generate listing
         if file_path.is_dir():
-            index_path = file_path / self.default_index
+            # Try each index filename in order (per Gemini best practices)
+            index_found = False
+            for index_name in self.default_indices:
+                index_path = file_path / index_name
+                if index_path.exists() and index_path.is_file():
+                    file_path = index_path
+                    index_found = True
+                    break
 
-            if index_path.exists() and index_path.is_file():
-                # Serve the index file
-                file_path = index_path
-            elif self.enable_directory_listing:
-                # Generate directory listing
-                try:
-                    listing = generate_directory_listing(file_path, request.path)
+            if not index_found:
+                if self.enable_directory_listing:
+                    # Generate directory listing
+                    try:
+                        listing = generate_directory_listing(file_path, request.path)
+                        return GeminiResponse(
+                            status=StatusCode.SUCCESS.value,
+                            meta=MIME_TYPE_GEMTEXT,
+                            body=listing,
+                        )
+                    except Exception as e:
+                        return GeminiResponse(
+                            status=StatusCode.TEMPORARY_FAILURE.value,
+                            meta=f"Error generating directory listing: {str(e)}",
+                        )
+                else:
+                    # No index and directory listing disabled
                     return GeminiResponse(
-                        status=StatusCode.SUCCESS.value,
-                        meta=MIME_TYPE_GEMTEXT,
-                        body=listing,
+                        status=StatusCode.NOT_FOUND.value, meta="Not found"
                     )
-                except Exception as e:
-                    return GeminiResponse(
-                        status=StatusCode.TEMPORARY_FAILURE.value,
-                        meta=f"Error generating directory listing: {str(e)}",
-                    )
-            else:
-                # No index and directory listing disabled
-                return GeminiResponse(
-                    status=StatusCode.NOT_FOUND.value, meta="Not found"
-                )
 
         # Check if file exists
         if not file_path.exists() or not file_path.is_file():
             return GeminiResponse(status=StatusCode.NOT_FOUND.value, meta="Not found")
+
+        # Check file size (per Gemini best practices, avoid files >100 MiB)
+        file_size = file_path.stat().st_size
+        if file_size > self.max_file_size:
+            return GeminiResponse(
+                status=StatusCode.PERMANENT_FAILURE.value,
+                meta="File too large - use alternative protocol",
+            )
 
         try:
             # Read file contents

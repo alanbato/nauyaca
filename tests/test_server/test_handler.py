@@ -18,13 +18,13 @@ class TestStaticFileHandler:
         handler = StaticFileHandler(tmp_path)
 
         assert handler.document_root == tmp_path.resolve()
-        assert handler.default_index == "index.gmi"
+        assert handler.default_indices == ["index.gmi", "index.gemini"]
 
-    def test_initialization_with_custom_index(self, tmp_path):
-        """Test handler initialization with custom index."""
-        handler = StaticFileHandler(tmp_path, default_index="home.gmi")
+    def test_initialization_with_custom_indices(self, tmp_path):
+        """Test handler initialization with custom indices."""
+        handler = StaticFileHandler(tmp_path, default_indices=["home.gmi"])
 
-        assert handler.default_index == "home.gmi"
+        assert handler.default_indices == ["home.gmi"]
 
     def test_initialization_nonexistent_root(self):
         """Test that nonexistent document root raises ValueError."""
@@ -91,7 +91,7 @@ class TestStaticFileHandler:
         index_file = tmp_path / "home.gmi"
         index_file.write_text("# Custom Home")
 
-        handler = StaticFileHandler(tmp_path, default_index="home.gmi")
+        handler = StaticFileHandler(tmp_path, default_indices=["home.gmi"])
         request = GeminiRequest.from_line("gemini://example.com/")
 
         response = handler.handle(request)
@@ -201,6 +201,72 @@ class TestStaticFileHandler:
 
         # Should return 404 since no index.gmi exists
         assert response.status == StatusCode.NOT_FOUND.value
+
+    def test_serve_index_gemini_fallback(self, tmp_path):
+        """Test serving index.gemini when index.gmi doesn't exist."""
+        # Create only index.gemini (not index.gmi)
+        index_file = tmp_path / "index.gemini"
+        index_file.write_text("# Welcome via index.gemini")
+
+        handler = StaticFileHandler(tmp_path)
+        request = GeminiRequest.from_line("gemini://example.com/")
+
+        response = handler.handle(request)
+
+        assert response.status == StatusCode.SUCCESS.value
+        assert response.body == "# Welcome via index.gemini"
+
+    def test_serve_index_gmi_preferred_over_gemini(self, tmp_path):
+        """Test that index.gmi is preferred over index.gemini."""
+        # Create both index files
+        (tmp_path / "index.gmi").write_text("# From index.gmi")
+        (tmp_path / "index.gemini").write_text("# From index.gemini")
+
+        handler = StaticFileHandler(tmp_path)
+        request = GeminiRequest.from_line("gemini://example.com/")
+
+        response = handler.handle(request)
+
+        assert response.status == StatusCode.SUCCESS.value
+        assert response.body == "# From index.gmi"
+
+    def test_file_too_large(self, tmp_path):
+        """Test that files larger than max_file_size are rejected."""
+        # Create a file larger than our small limit
+        large_file = tmp_path / "large.txt"
+        large_file.write_text("x" * 1000)  # 1000 bytes
+
+        # Use a small max_file_size for testing
+        handler = StaticFileHandler(tmp_path, max_file_size=500)
+        request = GeminiRequest.from_line("gemini://example.com/large.txt")
+
+        response = handler.handle(request)
+
+        assert response.status == StatusCode.PERMANENT_FAILURE.value
+        assert "too large" in response.meta.lower()
+
+    def test_file_within_size_limit(self, tmp_path):
+        """Test that files within max_file_size are served."""
+        test_file = tmp_path / "small.txt"
+        test_file.write_text("Small content")
+
+        # Use a generous limit
+        handler = StaticFileHandler(tmp_path, max_file_size=1000)
+        request = GeminiRequest.from_line("gemini://example.com/small.txt")
+
+        response = handler.handle(request)
+
+        assert response.status == StatusCode.SUCCESS.value
+        assert response.body == "Small content"
+
+    def test_default_max_file_size(self, tmp_path):
+        """Test that default max_file_size is 100 MiB."""
+        from nauyaca.protocol.constants import DEFAULT_MAX_FILE_SIZE
+
+        handler = StaticFileHandler(tmp_path)
+
+        assert handler.max_file_size == DEFAULT_MAX_FILE_SIZE
+        assert handler.max_file_size == 100 * 1024 * 1024  # 100 MiB
 
 
 class TestErrorHandler:

@@ -15,6 +15,9 @@ MAX_REQUEST_SIZE = 1024
 MAX_RESPONSE_BODY_SIZE = 10 * 1024 * 1024  # 10 MB
 """Recommended maximum response body size (not enforced by protocol)."""
 
+DEFAULT_MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MiB
+"""Default maximum file size to serve (per Gemini best practices)."""
+
 MAX_REDIRECTS = 5
 """Maximum number of redirects to follow before stopping."""
 
