@@ -8,6 +8,8 @@ import pytest
 from nauyaca.server.middleware import (
     AccessControl,
     AccessControlConfig,
+    CertificateAuth,
+    CertificateAuthConfig,
     MiddlewareChain,
     RateLimitConfig,
     RateLimiter,
@@ -277,9 +279,7 @@ async def test_middleware_chain_second_denies():
     """Test middleware chain processes all until denial."""
     # First allows, second denies
     config1 = AccessControlConfig(default_allow=True)
-    config2 = RateLimitConfig(
-        capacity=0, refill_rate=1.0
-    )  # No capacity = immediate deny
+    config2 = RateLimitConfig(capacity=0, refill_rate=1.0)  # No capacity = immediate deny
 
     acl = AccessControl(config1)
     limiter = RateLimiter(config2)
@@ -321,4 +321,115 @@ async def test_rate_limiter_refill_allows_more():
 
     # Should succeed now
     allow, _ = await limiter.process_request("gemini://test/", "192.168.1.1")
+    assert allow
+
+
+# Certificate Authentication Tests
+
+
+@pytest.mark.asyncio
+async def test_certificate_auth_no_requirements():
+    """Test certificate auth with no requirements allows all requests."""
+    config = CertificateAuthConfig(require_cert=False, allowed_fingerprints=None)
+    auth = CertificateAuth(config)
+
+    # No cert provided - should allow
+    allow, _ = await auth.process_request("gemini://test/", "192.168.1.1", None)
+    assert allow
+
+    # Cert provided - should also allow
+    allow, _ = await auth.process_request(
+        "gemini://test/", "192.168.1.1", "sha256:abc123"
+    )
+    assert allow
+
+
+@pytest.mark.asyncio
+async def test_certificate_auth_require_cert():
+    """Test certificate auth when certificate is required."""
+    config = CertificateAuthConfig(require_cert=True, allowed_fingerprints=None)
+    auth = CertificateAuth(config)
+
+    # No cert provided - should deny with status 60
+    allow, response = await auth.process_request("gemini://test/", "192.168.1.1", None)
+    assert not allow
+    assert "60" in response
+
+    # Cert provided - should allow (any cert is fine)
+    allow, _ = await auth.process_request(
+        "gemini://test/", "192.168.1.1", "sha256:abc123"
+    )
+    assert allow
+
+
+@pytest.mark.asyncio
+async def test_certificate_auth_fingerprint_whitelist():
+    """Test certificate auth with fingerprint whitelist."""
+    allowed = {"sha256:trusted1", "sha256:trusted2"}
+    config = CertificateAuthConfig(require_cert=False, allowed_fingerprints=allowed)
+    auth = CertificateAuth(config)
+
+    # No cert - should deny (whitelist requires cert)
+    allow, response = await auth.process_request("gemini://test/", "192.168.1.1", None)
+    assert not allow
+    assert "60" in response
+
+    # Trusted cert - should allow
+    allow, _ = await auth.process_request(
+        "gemini://test/", "192.168.1.1", "sha256:trusted1"
+    )
+    assert allow
+
+    # Untrusted cert - should deny with status 61
+    allow, response = await auth.process_request(
+        "gemini://test/", "192.168.1.1", "sha256:untrusted"
+    )
+    assert not allow
+    assert "61" in response
+
+
+@pytest.mark.asyncio
+async def test_certificate_auth_combined_require_and_whitelist():
+    """Test certificate auth with both require and whitelist."""
+    allowed = {"sha256:authorized"}
+    config = CertificateAuthConfig(require_cert=True, allowed_fingerprints=allowed)
+    auth = CertificateAuth(config)
+
+    # No cert - status 60
+    allow, response = await auth.process_request("gemini://test/", "192.168.1.1", None)
+    assert not allow
+    assert "60" in response
+
+    # Wrong cert - status 61
+    allow, response = await auth.process_request(
+        "gemini://test/", "192.168.1.1", "sha256:wrong"
+    )
+    assert not allow
+    assert "61" in response
+
+    # Correct cert - allowed
+    allow, _ = await auth.process_request(
+        "gemini://test/", "192.168.1.1", "sha256:authorized"
+    )
+    assert allow
+
+
+@pytest.mark.asyncio
+async def test_certificate_auth_in_middleware_chain():
+    """Test certificate auth works in middleware chain."""
+    cert_config = CertificateAuthConfig(require_cert=True)
+    access_config = AccessControlConfig(default_allow=True)
+
+    cert_auth = CertificateAuth(cert_config)
+    access = AccessControl(access_config)
+
+    chain = MiddlewareChain([cert_auth, access])
+
+    # No cert - should fail at cert auth
+    allow, response = await chain.process_request("gemini://test/", "192.168.1.1", None)
+    assert not allow
+    assert "60" in response
+
+    # With cert - should pass both middlewares
+    allow, _ = await chain.process_request("gemini://test/", "192.168.1.1", "sha256:any")
     assert allow

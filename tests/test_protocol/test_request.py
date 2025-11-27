@@ -96,12 +96,21 @@ class TestGeminiRequest:
         assert "Query:" in str_repr
         assert "q=test" in str_repr
 
-    def test_frozen_dataclass(self):
-        """Test that GeminiRequest is frozen (immutable)."""
+    def test_mutable_cert_fields(self):
+        """Test that certificate fields can be set after creation.
+
+        GeminiRequest is mutable to allow the server protocol to attach
+        client certificate information after parsing the request URL.
+        """
         request = GeminiRequest.from_line("gemini://example.com/")
 
-        with pytest.raises(AttributeError):
-            request.raw_url = "gemini://other.com/"  # type: ignore
+        # Initially no cert
+        assert request.client_cert is None
+        assert request.client_cert_fingerprint is None
+
+        # Can set cert fingerprint (server protocol does this)
+        request.client_cert_fingerprint = "sha256:abc123"
+        assert request.client_cert_fingerprint == "sha256:abc123"
 
     def test_property_access(self):
         """Test all property accessors work correctly."""

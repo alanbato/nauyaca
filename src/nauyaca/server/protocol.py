@@ -8,6 +8,8 @@ import asyncio
 import time
 from collections.abc import Callable
 
+from cryptography import x509
+
 from ..protocol.constants import CRLF, MAX_REQUEST_SIZE
 from ..protocol.request import GeminiRequest
 from ..protocol.response import GeminiResponse
@@ -134,6 +136,18 @@ class GeminiServerProtocol(asyncio.Protocol):
             self._send_error_response(StatusCode.BAD_REQUEST, str(e))
             return
 
+        # Extract client certificate if present
+        client_cert = self.get_peer_certificate()
+        client_cert_fingerprint: str | None = None
+        if client_cert:
+            from ..security.certificates import get_certificate_fingerprint
+
+            client_cert_fingerprint = get_certificate_fingerprint(client_cert)
+
+        # Attach certificate info to request
+        request.client_cert = client_cert
+        request.client_cert_fingerprint = client_cert_fingerprint
+
         client_ip = self.peer_name[0] if self.peer_name else "unknown"
 
         # Process through middleware if present
@@ -141,7 +155,9 @@ class GeminiServerProtocol(asyncio.Protocol):
             try:
                 # Create async task for middleware processing
                 task = asyncio.create_task(
-                    self.middleware.process_request(request.normalized_url, client_ip)
+                    self.middleware.process_request(
+                        request.normalized_url, client_ip, client_cert_fingerprint
+                    )
                 )
                 # Add callback to handle result when task completes
                 # Use lambda to pass request and client_ip to callback
@@ -312,3 +328,29 @@ class GeminiServerProtocol(asyncio.Protocol):
 
         # Cleanup
         self.transport = None
+
+    def get_peer_certificate(self) -> x509.Certificate | None:
+        """Get the client's certificate from the SSL transport.
+
+        Returns:
+            The client's X.509 certificate, or None if not available
+            (e.g., client didn't present a certificate or connection isn't TLS).
+        """
+        if self.transport is None:
+            return None
+
+        # Get the SSL object from the transport
+        ssl_object = self.transport.get_extra_info("ssl_object")
+        if ssl_object is None:
+            return None
+
+        try:
+            # Get certificate in DER binary format
+            der_cert = ssl_object.getpeercert(binary_form=True)
+            if der_cert:
+                return x509.load_der_x509_certificate(der_cert)
+        except Exception:
+            # If we can't load the certificate, return None
+            return None
+
+        return None

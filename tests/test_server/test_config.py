@@ -306,3 +306,65 @@ default_allow = false
         """Test that get_access_control_config returns None when no ACLs configured."""
         config = ServerConfig(document_root=tmp_path)
         assert config.get_access_control_config() is None
+
+    def test_certificate_auth_from_toml(self, tmp_path):
+        """Test that certificate auth config is loaded from TOML."""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            """
+[server]
+document_root = "."
+
+[certificate_auth]
+require_cert = true
+allowed_fingerprints = ["sha256:abc123", "sha256:def456"]
+"""
+        )
+
+        config = ServerConfig.from_toml(config_file)
+
+        assert config.require_client_cert is True
+        assert config.allowed_cert_fingerprints == ["sha256:abc123", "sha256:def456"]
+
+    def test_certificate_auth_helper_method(self, tmp_path):
+        """Test get_certificate_auth_config helper method."""
+        config = ServerConfig(
+            document_root=tmp_path,
+            require_client_cert=True,
+            allowed_cert_fingerprints=["sha256:test1", "sha256:test2"],
+        )
+
+        cert_config = config.get_certificate_auth_config()
+
+        assert cert_config is not None
+        assert cert_config.require_cert is True
+        assert cert_config.allowed_fingerprints == {"sha256:test1", "sha256:test2"}
+
+    def test_no_certificate_auth_returns_none(self, tmp_path):
+        """Test that get_certificate_auth_config returns None when not configured."""
+        config = ServerConfig(document_root=tmp_path)
+        assert config.get_certificate_auth_config() is None
+
+    def test_logging_config_from_toml(self, tmp_path):
+        """Test that logging config is loaded from TOML."""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            """
+[server]
+document_root = "."
+
+[logging]
+hash_ips = false
+"""
+        )
+
+        config = ServerConfig.from_toml(config_file)
+
+        assert config.hash_client_ips is False
+
+    def test_logging_config_defaults(self, tmp_path):
+        """Test that logging config has correct defaults."""
+        config = ServerConfig(document_root=tmp_path)
+
+        # Default should be True (hash IPs for privacy)
+        assert config.hash_client_ips is True

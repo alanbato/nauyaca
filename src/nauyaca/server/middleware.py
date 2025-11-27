@@ -20,13 +20,18 @@ class Middleware(Protocol):
     """Protocol for middleware components."""
 
     async def process_request(
-        self, request_url: str, client_ip: str
+        self,
+        request_url: str,
+        client_ip: str,
+        client_cert_fingerprint: str | None = None,
     ) -> tuple[bool, str | None]:
         """Process a request.
 
         Args:
             request_url: The requested URL.
             client_ip: The client's IP address.
+            client_cert_fingerprint: SHA-256 fingerprint of client certificate,
+                or None if client didn't present a certificate.
 
         Returns:
             Tuple of (allow, error_response):
@@ -134,13 +139,17 @@ class RateLimiter:
                 del self.buckets[ip]
 
     async def process_request(
-        self, request_url: str, client_ip: str
+        self,
+        request_url: str,
+        client_ip: str,
+        client_cert_fingerprint: str | None = None,
     ) -> tuple[bool, str | None]:
         """Process request with rate limiting.
 
         Args:
             request_url: The requested URL.
             client_ip: The client's IP address.
+            client_cert_fingerprint: Client certificate fingerprint (unused).
 
         Returns:
             Tuple of (allow, error_response).
@@ -250,13 +259,17 @@ class AccessControl:
         return self.config.default_allow
 
     async def process_request(
-        self, request_url: str, client_ip: str
+        self,
+        request_url: str,
+        client_ip: str,
+        client_cert_fingerprint: str | None = None,
     ) -> tuple[bool, str | None]:
         """Process request with access control.
 
         Args:
             request_url: The requested URL.
             client_ip: The client's IP address.
+            client_cert_fingerprint: Client certificate fingerprint (unused).
 
         Returns:
             Tuple of (allow, error_response).
@@ -267,6 +280,70 @@ class AccessControl:
         # IP is blocked
         response = "53 Access denied\r\n"
         return False, response
+
+
+@dataclass
+class CertificateAuthConfig:
+    """Configuration for certificate-based authentication."""
+
+    # Require client certificate (returns status 60 if missing)
+    require_cert: bool = False
+
+    # Whitelist of allowed certificate fingerprints (optional)
+    # If set, only certificates with matching fingerprints are allowed
+    allowed_fingerprints: set[str] | None = None
+
+
+class CertificateAuth:
+    """Certificate-based authentication middleware.
+
+    Can require client certificates (status 60) and/or validate
+    against a whitelist of allowed certificate fingerprints (status 61).
+
+    Per Gemini application best practices, this enables:
+    - Account registration flows using client certificates
+    - Certificate-based access control
+    - User identity verification via certificate fingerprints
+    """
+
+    def __init__(self, config: CertificateAuthConfig | None = None):
+        """Initialize certificate authentication middleware.
+
+        Args:
+            config: Certificate auth configuration. Uses defaults if None.
+        """
+        self.config = config or CertificateAuthConfig()
+
+    async def process_request(
+        self,
+        request_url: str,
+        client_ip: str,
+        client_cert_fingerprint: str | None = None,
+    ) -> tuple[bool, str | None]:
+        """Process request with certificate authentication.
+
+        Args:
+            request_url: The requested URL.
+            client_ip: The client's IP address.
+            client_cert_fingerprint: SHA-256 fingerprint of client certificate.
+
+        Returns:
+            Tuple of (allow, error_response).
+        """
+        # Check if certificate is required but missing
+        if self.config.require_cert and not client_cert_fingerprint:
+            return False, "60 Client certificate required\r\n"
+
+        # Check fingerprint whitelist if configured
+        if self.config.allowed_fingerprints is not None:
+            if not client_cert_fingerprint:
+                # No cert provided but whitelist requires one
+                return False, "60 Client certificate required\r\n"
+
+            if client_cert_fingerprint not in self.config.allowed_fingerprints:
+                return False, "61 Certificate not authorized\r\n"
+
+        return True, None
 
 
 class MiddlewareChain:
@@ -281,19 +358,25 @@ class MiddlewareChain:
         self.middlewares = middlewares
 
     async def process_request(
-        self, request_url: str, client_ip: str
+        self,
+        request_url: str,
+        client_ip: str,
+        client_cert_fingerprint: str | None = None,
     ) -> tuple[bool, str | None]:
         """Process request through all middleware.
 
         Args:
             request_url: The requested URL.
             client_ip: The client's IP address.
+            client_cert_fingerprint: SHA-256 fingerprint of client certificate.
 
         Returns:
             Tuple of (allow, error_response). Returns first rejection.
         """
         for middleware in self.middlewares:
-            allow, response = await middleware.process_request(request_url, client_ip)
+            allow, response = await middleware.process_request(
+                request_url, client_ip, client_cert_fingerprint
+            )
             if not allow:
                 return False, response
 

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..protocol.constants import DEFAULT_MAX_FILE_SIZE, DEFAULT_PORT
-from .middleware import AccessControlConfig, RateLimitConfig
+from .middleware import AccessControlConfig, CertificateAuthConfig, RateLimitConfig
 
 
 @dataclass
@@ -51,6 +51,13 @@ class ServerConfig:
 
     # File serving limits
     max_file_size: int = DEFAULT_MAX_FILE_SIZE
+
+    # Certificate authentication
+    require_client_cert: bool = False
+    allowed_cert_fingerprints: list[str] | None = None
+
+    # Logging/privacy
+    hash_client_ips: bool = True
 
     def __post_init__(self) -> None:
         """Validate and normalize configuration after initialization."""
@@ -122,6 +129,27 @@ class ServerConfig:
             default_allow=self.access_control_default_allow,
         )
 
+    def get_certificate_auth_config(self) -> CertificateAuthConfig | None:
+        """Get certificate authentication configuration.
+
+        Returns:
+            CertificateAuthConfig instance if cert auth is enabled, None otherwise.
+        """
+        if not self.require_client_cert and not self.allowed_cert_fingerprints:
+            return None
+
+        # Convert list to set for efficient lookups
+        fingerprints = (
+            set(self.allowed_cert_fingerprints)
+            if self.allowed_cert_fingerprints
+            else None
+        )
+
+        return CertificateAuthConfig(
+            require_cert=self.require_client_cert,
+            allowed_fingerprints=fingerprints,
+        )
+
     @classmethod
     def from_toml(cls, path: Path) -> "ServerConfig":
         """Load configuration from TOML file.
@@ -154,6 +182,8 @@ class ServerConfig:
         server = data.get("server", {})
         rate_limit = data.get("rate_limit", {})
         access_control = data.get("access_control", {})
+        certificate_auth = data.get("certificate_auth", {})
+        logging_config = data.get("logging", {})
 
         # Build config with proper type conversions
         return cls(
@@ -173,4 +203,9 @@ class ServerConfig:
             access_control_allow_list=access_control.get("allow_list"),
             access_control_deny_list=access_control.get("deny_list"),
             access_control_default_allow=access_control.get("default_allow", True),
+            # Certificate authentication
+            require_client_cert=certificate_auth.get("require_cert", False),
+            allowed_cert_fingerprints=certificate_auth.get("allowed_fingerprints"),
+            # Logging/privacy
+            hash_client_ips=logging_config.get("hash_ips", True),
         )

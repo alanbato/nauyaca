@@ -4,12 +4,16 @@ This module provides the GeminiRequest dataclass for representing
 Gemini protocol requests.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from ..utils.url import ParsedURL, parse_url, validate_url
 
+if TYPE_CHECKING:
+    from cryptography.x509 import Certificate
 
-@dataclass(frozen=True)
+
+@dataclass
 class GeminiRequest:
     """Represents a Gemini protocol request.
 
@@ -19,6 +23,8 @@ class GeminiRequest:
     Attributes:
         raw_url: The original URL string from the request line.
         parsed_url: Parsed URL components (scheme, hostname, port, path, query).
+        client_cert: Optional client certificate (if provided via TLS).
+        client_cert_fingerprint: SHA-256 fingerprint of client certificate.
 
     Examples:
         >>> request = GeminiRequest.from_line('gemini://example.com/hello')
@@ -32,6 +38,8 @@ class GeminiRequest:
 
     raw_url: str
     parsed_url: ParsedURL
+    client_cert: "Certificate | None" = field(default=None, compare=False)
+    client_cert_fingerprint: str | None = field(default=None, compare=False)
 
     @classmethod
     def from_line(cls, line: str) -> "GeminiRequest":

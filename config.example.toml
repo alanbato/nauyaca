@@ -73,3 +73,29 @@ default_allow = true
 # Example 3: Private server (localhost only)
 # allow_list = ["127.0.0.1"]
 # default_allow = false
+
+[certificate_auth]
+# Certificate-based authentication per Gemini application best practices.
+# This enables certificate-based user identity for account registration,
+# authentication flows, and access control.
+
+# Require client certificates (returns status 60 if missing)
+# Set to true to require all clients to present a certificate
+require_cert = false
+
+# Optional: Only allow specific certificate fingerprints (whitelist)
+# If set, only certificates with matching SHA-256 fingerprints are allowed.
+# Returns status 61 (Certificate not authorized) for non-matching certs.
+# Uncomment and add your authorized fingerprints:
+# allowed_fingerprints = [
+#   "sha256:a1b2c3d4e5f6...",
+#   "sha256:1234567890ab...",
+# ]
+
+[logging]
+# Privacy-preserving logging configuration
+
+# Hash client IP addresses in logs (recommended for privacy)
+# When enabled, IP addresses are replaced with SHA-256 hashes
+# This allows abuse detection while protecting user privacy
+hash_ips = true
