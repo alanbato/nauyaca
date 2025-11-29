@@ -1,0 +1,137 @@
+site_name: Nauyaca
+site_description: Modern Gemini protocol server and client implementation using asyncio
+site_url: https://nauyaca.readthedocs.io
+repo_url: https://github.com/alanbato/nauyaca
+repo_name: alanbato/nauyaca
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.expand
+    - navigation.indexes
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.action.view
+    - content.action.edit
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+  palette:
+    - scheme: default
+      primary: teal
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          options:
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            docstring_style: google
+            merge_init_into_class: true
+            show_signature_annotations: true
+            separate_signature: true
+  - git-revision-date-localized:
+      enable_creation_date: true
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: "!!python/name:pymdownx.superfences.fence_code_format"
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+  - pymdownx.emoji:
+      emoji_index: "!!python/name:material.extensions.emoji.twemoji"
+      emoji_generator: "!!python/name:material.extensions.emoji.to_svg"
+
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Quick Start: quickstart.md
+  - Tutorials:
+      - tutorials/index.md
+      - Your First Capsule: tutorials/your-first-capsule.md
+      - Building a Client: tutorials/building-a-client.md
+      - Securing Your Server: tutorials/securing-your-server.md
+  - How-to Guides:
+      - how-to/index.md
+      - Configure Server: how-to/configure-server.md
+      - Manage Certificates: how-to/manage-certificates.md
+      - Setup TOFU: how-to/setup-tofu.md
+      - Rate Limiting: how-to/rate-limiting.md
+      - Access Control: how-to/access-control.md
+      - Client Certificates: how-to/client-certificates.md
+      - Logging: how-to/logging.md
+  - Reference:
+      - reference/index.md
+      - CLI: reference/cli.md
+      - Configuration: reference/configuration.md
+      - Status Codes: reference/status-codes.md
+      - API:
+          - reference/api/index.md
+          - Client: reference/api/client.md
+          - Server: reference/api/server.md
+          - Security: reference/api/security.md
+  - Explanation:
+      - explanation/index.md
+      - Gemini Protocol: explanation/gemini-protocol.md
+      - Architecture: explanation/architecture.md
+      - Security Model: explanation/security-model.md
+  - Changelog: changelog.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/alanbato/nauyaca
+  version:
+    provider: mike
