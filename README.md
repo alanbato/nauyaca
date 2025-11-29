@@ -73,18 +73,6 @@ async def main():
 asyncio.run(main())
 ```
 
-## Feature Status
-
-| Feature | Status |
-|---------|--------|
-| Core Protocol (TLS 1.2+, status codes) | Complete |
-| TOFU Certificate Validation | Complete |
-| Rate Limiting & DoS Protection | Complete |
-| IP-based Access Control | Complete |
-| TOML Configuration | Complete |
-| CLI Interface | In Progress |
-| Static File Serving | Planned |
-
 ## Documentation
 
 **[nauyaca.readthedocs.io](https://nauyaca.readthedocs.io)**
