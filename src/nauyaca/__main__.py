@@ -4,6 +4,7 @@ This module provides a command-line interface for the Nauyaca Gemini client.
 """
 
 import asyncio
+from importlib.metadata import version as get_version
 from pathlib import Path
 
 import typer
@@ -418,7 +419,7 @@ def serve(
 def version() -> None:
     """Show version information."""
     console.print("[bold cyan]Nauyaca[/] Gemini Protocol Client & Server")
-    console.print("[bold]Version:[/] 0.1.0 (MVP)")
+    console.print(f"[bold]Version:[/] {get_version('nauyaca')}")
     console.print("[bold]Protocol:[/] Gemini (gemini://)")
 
 
