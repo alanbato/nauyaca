@@ -6,7 +6,7 @@ Protocol/Transport pattern for efficient, non-blocking I/O.
 
 import asyncio
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from cryptography import x509
 
@@ -45,7 +45,9 @@ class GeminiServerProtocol(asyncio.Protocol):
 
     def __init__(
         self,
-        request_handler: Callable[[GeminiRequest], GeminiResponse],
+        request_handler: Callable[
+            [GeminiRequest], GeminiResponse | Awaitable[GeminiResponse]
+        ],
         middleware: object = None,
     ) -> None:
         """Initialize the server protocol.
@@ -53,6 +55,7 @@ class GeminiServerProtocol(asyncio.Protocol):
         Args:
             request_handler: Callback that processes requests and returns responses.
                 Should have signature: (GeminiRequest) -> GeminiResponse
+                or async signature: (GeminiRequest) -> Awaitable[GeminiResponse]
             middleware: Optional middleware chain for request processing.
         """
         self.request_handler = request_handler
@@ -246,6 +249,7 @@ class GeminiServerProtocol(asyncio.Protocol):
         """Route the request and send response.
 
         This method handles the actual request routing after middleware processing.
+        Supports both sync and async request handlers.
 
         Args:
             request: The parsed Gemini request.
@@ -253,7 +257,34 @@ class GeminiServerProtocol(asyncio.Protocol):
         """
         try:
             # Call request handler to get response
-            response = self.request_handler(request)
+            result = self.request_handler(request)
+
+            # Check if handler returned a coroutine (async handler)
+            if asyncio.iscoroutine(result):
+                try:
+                    # Create async task for handler processing
+                    task = asyncio.create_task(result)
+                    # Add callback to handle result when task completes
+                    task.add_done_callback(
+                        lambda t: self._handle_async_handler_result(t, request, client_ip)
+                    )
+                    # Return early - callback will handle the rest
+                    return
+                except RuntimeError:
+                    # No event loop running (probably in tests)
+                    logger.warning(
+                        "async_handler_skipped",
+                        client_ip=client_ip,
+                        reason="no_event_loop",
+                    )
+                    self._send_error_response(
+                        StatusCode.TEMPORARY_FAILURE,
+                        "Server error: async handler requires event loop",
+                    )
+                    return
+
+            # Sync handler - result is the response directly
+            response = result
 
             # Set the URL in the response for logging (if not already set)
             if not response.url:
@@ -279,6 +310,45 @@ class GeminiServerProtocol(asyncio.Protocol):
 
         # Send the response
         self._send_response(response)
+
+    def _handle_async_handler_result(
+        self, task: asyncio.Task, request: GeminiRequest, client_ip: str
+    ) -> None:
+        """Handle the result of an async request handler.
+
+        This is called as a callback when the async handler task completes.
+
+        Args:
+            task: The completed asyncio task.
+            request: The parsed Gemini request.
+            client_ip: The client's IP address.
+        """
+        try:
+            # Get the response from the completed task
+            response = task.result()
+
+            # Set the URL in the response for logging (if not already set)
+            if not response.url:
+                response = GeminiResponse(
+                    status=response.status,
+                    meta=response.meta,
+                    body=response.body,
+                    url=request.normalized_url,
+                )
+
+            # Send the response
+            self._send_response(response)
+
+        except Exception as e:
+            logger.error(
+                "async_handler_error",
+                client_ip=client_ip,
+                error=str(e),
+                exception_type=type(e).__name__,
+            )
+            self._send_error_response(
+                StatusCode.TEMPORARY_FAILURE, f"Server error: {str(e)}"
+            )
 
     def _handle_middleware_result(
         self, task: asyncio.Task, request: GeminiRequest, client_ip: str
