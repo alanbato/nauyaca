@@ -313,6 +313,21 @@ def serve(
         "--require-client-cert",
         help="Require client certificates for all connections (status 60 if missing)",
     ),
+    reload: bool = typer.Option(
+        False,
+        "--reload",
+        help="Enable auto-reload: restart server when source files change (dev only)",
+    ),
+    reload_dir: list[Path] | None = typer.Option(
+        None,
+        "--reload-dir",
+        help="Directories to watch for changes (can specify multiple times). "
+        "Defaults to document_root and src/nauyaca",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+    ),
 ) -> None:
     """Start a Gemini server to serve files from a directory.
 
@@ -338,7 +353,91 @@ def serve(
 
         # Serve with custom TLS certificate
         $ nauyaca serve ./capsule --cert cert.pem --key key.pem
+
+        # Serve with hot-reload for development
+        $ nauyaca serve ./capsule --reload
+
+        # Hot-reload with custom watch directories
+        $ nauyaca serve ./capsule --reload --reload-dir ./src
     """
+    # Handle reload mode - runs supervisor that spawns server subprocesses
+    if reload:
+        # Determine document root for watch directories
+        doc_root: Path | None = root
+        if doc_root is None and config_file is not None:
+            # Try to load document root from config file
+            try:
+                temp_config = ServerConfig.from_toml(config_file)
+                doc_root = Path(temp_config.document_root)
+            except Exception:
+                pass
+
+        if doc_root is None:
+            error_console.print(
+                "[red]Error:[/] Document root is required for --reload "
+                "(either as argument or via --config)"
+            )
+            raise typer.Exit(code=1)
+
+        # Build watch directories
+        watch_dirs: list[Path] = []
+        if reload_dir:
+            watch_dirs.extend(reload_dir)
+        else:
+            # Default: watch document root and nauyaca source
+            watch_dirs.append(doc_root)
+            nauyaca_src = Path(__file__).parent
+            if nauyaca_src.exists():
+                watch_dirs.append(nauyaca_src)
+
+        # Deduplicate and filter to existing directories
+        watch_dirs = list({d.resolve() for d in watch_dirs if d.exists()})
+
+        if not watch_dirs:
+            error_console.print("[red]Error:[/] No valid watch directories found")
+            raise typer.Exit(code=1)
+
+        # Build server args - filter out reload-related flags
+        import sys
+
+        server_args: list[str] = ["serve"]
+        skip_next = False
+
+        for arg in sys.argv[2:]:  # Skip 'nauyaca' and 'serve'
+            if skip_next:
+                skip_next = False
+                continue
+
+            if arg == "--reload":
+                continue
+            if arg == "--reload-dir":
+                skip_next = True
+                continue
+            if arg.startswith("--reload-dir="):
+                continue
+
+            server_args.append(arg)
+
+        # Display reload info
+        console.print("[bold cyan][Reload][/] Hot-reload enabled")
+        console.print(
+            f"[cyan][Reload][/] Watching: {', '.join(str(d) for d in watch_dirs)}"
+        )
+
+        # Run with reload supervisor
+        from .server.reload import ReloadConfig, run_with_reload
+
+        try:
+            reload_config = ReloadConfig(watch_dirs=watch_dirs)
+            run_with_reload(reload_config, server_args)
+        except KeyboardInterrupt:
+            console.print("\n[bold blue][Reload][/] Shutting down...")
+            raise typer.Exit(code=0) from None
+        except Exception as e:
+            error_console.print(f"Reload error: {e}")
+            raise typer.Exit(code=1) from e
+
+        return  # Never reached, but makes type checker happy
 
     async def _serve() -> None:
         try:
