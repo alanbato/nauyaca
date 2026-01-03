@@ -26,7 +26,7 @@ error_console = Console(stderr=True, style="bold red")
 app = typer.Typer(
     name="nauyaca",
     help="Nauyaca - A modern Gemini protocol client",
-    add_completion=False,
+    add_completion=True,
     no_args_is_help=True,
 )
 

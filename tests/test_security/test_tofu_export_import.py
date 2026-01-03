@@ -1,9 +1,15 @@
 """Tests for TOFU database TOML export/import functionality."""
 
+import sys
 from pathlib import Path
 
 import pytest
 from cryptography import x509
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 from nauyaca.security.tofu import TOFUDatabase
 
@@ -23,8 +29,6 @@ class TestTOFUExport:
         assert export_path.exists()
 
         # Verify TOML structure
-        import tomllib
-
         with open(export_path, "rb") as f:
             data = tomllib.load(f)
 
@@ -46,8 +50,6 @@ class TestTOFUExport:
         assert export_path.exists()
 
         # Verify content
-        import tomllib
-
         with open(export_path, "rb") as f:
             data = tomllib.load(f)
 
@@ -83,8 +85,6 @@ class TestTOFUExport:
         assert count == 3
 
         # Verify all hosts present
-        import tomllib
-
         with open(export_path, "rb") as f:
             data = tomllib.load(f)
 
@@ -454,8 +454,7 @@ class TestTOFURoundTrip:
         for key in original_by_key:
             assert key in imported_by_key
             assert (
-                original_by_key[key]["fingerprint"]
-                == imported_by_key[key]["fingerprint"]
+                original_by_key[key]["fingerprint"] == imported_by_key[key]["fingerprint"]
             )
             assert (
                 original_by_key[key]["first_seen"] == imported_by_key[key]["first_seen"]

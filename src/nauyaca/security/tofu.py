@@ -9,8 +9,13 @@ the stored fingerprints.
 import datetime
 import re
 import sqlite3
-import tomllib
+import sys
 from collections.abc import Callable
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -357,8 +362,7 @@ class TOFUDatabase:
                 for field in required_fields:
                     if field not in host_data:
                         raise ValueError(
-                            f"Invalid TOML: host '{key}'"
-                            f" missing required field '{field}'"
+                            f"Invalid TOML: host '{key}' missing required field '{field}'"
                         )
 
                 hostname = host_data["hostname"]

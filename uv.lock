@@ -893,13 +893,14 @@ wheels = [
 
 [[package]]
 name = "nauyaca"
-version = "0.2.0"
+version = "0.3.2"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
     { name = "pyopenssl" },
     { name = "rich" },
     { name = "structlog" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "tomli-w" },
     { name = "typer" },
 ]
@@ -933,6 +934,7 @@ requires-dist = [
     { name = "pyopenssl", specifier = ">=24.0.0" },
     { name = "rich", specifier = ">=14.2.0" },
     { name = "structlog", specifier = ">=25.5.0" },
+    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0.0" },
     { name = "tomli-w", specifier = ">=1.0.0" },
     { name = "typer", specifier = ">=0.20.0" },
 ]
