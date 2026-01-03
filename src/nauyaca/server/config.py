@@ -56,6 +56,7 @@ class ServerConfig:
     rate_limit_retry_after: int = 30
 
     # Access control
+    enable_access_control: bool = True
     access_control_allow_list: list[str] | None = None
     access_control_deny_list: list[str] | None = None
     access_control_default_allow: bool = True
@@ -66,6 +67,9 @@ class ServerConfig:
     # Path-based certificate authentication
     # List of dicts with 'prefix', 'require_cert', and optional 'allowed_fingerprints'
     certificate_auth_paths: list[dict[str, Any]] | None = None
+
+    # Client certificate requirement (triggers PyOpenSSL for self-signed certs)
+    require_client_cert: bool = False
 
     # Logging/privacy
     hash_client_ips: bool = True
@@ -129,8 +133,12 @@ class ServerConfig:
         """Get access control configuration.
 
         Returns:
-            AccessControlConfig instance if any lists are configured, None otherwise.
+            AccessControlConfig instance if enabled and lists are configured,
+            None otherwise.
         """
+        if not self.enable_access_control:
+            return None
+
         if not (self.access_control_allow_list or self.access_control_deny_list):
             return None
 

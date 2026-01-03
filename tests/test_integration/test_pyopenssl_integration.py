@@ -76,8 +76,19 @@ async def server_with_pyopenssl_cert_auth(unused_tcp_port, tmp_path):
     client_cert = load_certificate(client_cert_file)
     client_fingerprint = get_certificate_fingerprint(client_cert)
 
+    # Create certificate auth config that requires a certificate for all paths
+    from nauyaca.server.middleware import CertificateAuthConfig, CertificateAuthPathRule
+
+    cert_auth_config = CertificateAuthConfig(
+        path_rules=[
+            CertificateAuthPathRule(
+                prefix="/",  # All paths
+                require_cert=True,  # Require client certificate
+            )
+        ]
+    )
+
     # Create server configuration
-    # require_client_cert=True triggers PyOpenSSL usage
     config = ServerConfig(
         host="127.0.0.1",
         port=unused_tcp_port,
@@ -85,15 +96,14 @@ async def server_with_pyopenssl_cert_auth(unused_tcp_port, tmp_path):
         certfile=server_cert_file,
         keyfile=server_key_file,
         enable_rate_limiting=False,
-        require_client_cert=True,  # This triggers PyOpenSSL
     )
 
-    # Start server - this will use PyOpenSSL because require_client_cert=True
+    # Start server - uses PyOpenSSL because certificate_auth_config requires certs
     server_task = asyncio.create_task(
         start_server(
             config,
             enable_rate_limiting=False,
-            certificate_auth_config=config.get_certificate_auth_config(),
+            certificate_auth_config=cert_auth_config,
         )
     )
 
@@ -144,9 +154,9 @@ async def server_with_optional_client_cert(unused_tcp_port, tmp_path):
     client_cert_file.write_bytes(client_cert_pem)
     client_key_file.write_bytes(client_key_pem)
 
-    # Create server configuration
-    # require_client_cert=False but we still enable cert auth middleware
-    # to accept optional certs
+    # Create server configuration with require_client_cert=True to trigger PyOpenSSL
+    # This allows the server to accept ANY self-signed client certificate
+    # without needing to pre-load it as a CA
     config = ServerConfig(
         host="127.0.0.1",
         port=unused_tcp_port,
@@ -154,23 +164,15 @@ async def server_with_optional_client_cert(unused_tcp_port, tmp_path):
         certfile=server_cert_file,
         keyfile=server_key_file,
         enable_rate_limiting=False,
-        # Need to request certs, but middleware won't require them
-        require_client_cert=True,
+        require_client_cert=True,  # Triggers PyOpenSSL for self-signed cert support
     )
 
-    # Override the middleware config to not require cert
-    from nauyaca.server.middleware import CertificateAuthConfig
-
-    cert_auth_config = CertificateAuthConfig(
-        require_cert=False,  # Don't require cert
-        allowed_fingerprints=None,  # Accept any cert
-    )
-
+    # No certificate_auth_config means no middleware enforcement -
+    # certs are requested but not required, and any cert is accepted
     server_task = asyncio.create_task(
         start_server(
             config,
             enable_rate_limiting=False,
-            certificate_auth_config=cert_auth_config,
         )
     )
 

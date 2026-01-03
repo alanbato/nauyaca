@@ -130,11 +130,15 @@ async def start_server(
     router.add_route("/", static_handler.handle, route_type=RouteType.PREFIX)
 
     # Determine if we need to request client certificates
-    # (needed for CertificateAuth middleware to work)
-    # PyOpenSSL is used if ANY path rule requires certificates
-    request_client_cert = certificate_auth_config is not None and any(
-        rule.require_cert or rule.allowed_fingerprints is not None
-        for rule in certificate_auth_config.path_rules
+    # PyOpenSSL is used if:
+    # 1. config.require_client_cert is explicitly True, OR
+    # 2. ANY certificate auth path rule requires certificates or has fingerprint whitelist
+    request_client_cert = config.require_client_cert or (
+        certificate_auth_config is not None
+        and any(
+            rule.require_cert or rule.allowed_fingerprints is not None
+            for rule in certificate_auth_config.path_rules
+        )
     )
 
     # Determine if we need PyOpenSSL for client certificate support

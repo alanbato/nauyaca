@@ -526,7 +526,7 @@ async def server_with_cert_required(unused_tcp_port, tmp_path):
         client_ca_certs=[str(client_cert_file)],
     )
 
-    # Create server configuration
+    # Create server configuration with certificate auth requiring certs for all paths
     config = ServerConfig(
         host="127.0.0.1",
         port=unused_tcp_port,
@@ -534,7 +534,7 @@ async def server_with_cert_required(unused_tcp_port, tmp_path):
         certfile=server_cert_file,
         keyfile=server_key_file,
         enable_rate_limiting=False,
-        require_client_cert=True,
+        certificate_auth_paths=[{"prefix": "/", "require_cert": True}],
     )
 
     # Create router and handler manually (can't use start_server with custom SSL)
@@ -564,13 +564,11 @@ async def server_with_cert_required(unused_tcp_port, tmp_path):
     router.add_route("/", static_handler.handle, route_type=RouteType.PREFIX)
 
     # Set up middleware chain with certificate auth
-    cert_auth_config = config.get_certificate_auth_config()
-    middleware_chain = None
-    if cert_auth_config:
-        from nauyaca.server.middleware import CertificateAuth, MiddlewareChain
+    from nauyaca.server.middleware import CertificateAuth, MiddlewareChain
 
-        cert_auth = CertificateAuth(cert_auth_config)
-        middleware_chain = MiddlewareChain([cert_auth])
+    cert_auth_config = config.get_certificate_auth_config()
+    cert_auth = CertificateAuth(cert_auth_config)
+    middleware_chain = MiddlewareChain([cert_auth])
 
     # Create server with custom SSL context
     loop = asyncio.get_running_loop()

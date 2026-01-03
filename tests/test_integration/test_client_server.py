@@ -148,7 +148,9 @@ async def test_get_index_page(lightweight_server):
     """Test getting the index page from test server."""
     port = lightweight_server
 
-    async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
+    async with GeminiClient(
+        timeout=5.0, verify_ssl=False, trust_on_first_use=False
+    ) as client:
         response = await client.get(f"gemini://127.0.0.1:{port}/")
 
         assert response.status == 20
@@ -163,7 +165,9 @@ async def test_get_about_page(lightweight_server):
     """Test getting the about page from test server."""
     port = lightweight_server
 
-    async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
+    async with GeminiClient(
+        timeout=5.0, verify_ssl=False, trust_on_first_use=False
+    ) as client:
         response = await client.get(f"gemini://127.0.0.1:{port}/about.gmi")
 
         assert response.status == 20
@@ -177,7 +181,9 @@ async def test_get_not_found(lightweight_server):
     """Test getting a non-existent page returns 51."""
     port = lightweight_server
 
-    async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
+    async with GeminiClient(
+        timeout=5.0, verify_ssl=False, trust_on_first_use=False
+    ) as client:
         response = await client.get(
             f"gemini://127.0.0.1:{port}/notfound.gmi",
             follow_redirects=False,
@@ -194,7 +200,9 @@ async def test_connection_refused(unused_tcp_port):
     """Test that connection failure is handled correctly."""
     # Don't start a server, so connection will be refused
 
-    async with GeminiClient(timeout=0.5, verify_ssl=False) as client:
+    async with GeminiClient(
+        timeout=0.5, verify_ssl=False, trust_on_first_use=False
+    ) as client:
         with pytest.raises(ConnectionError, match="Connection failed"):
             await client.get(f"gemini://127.0.0.1:{unused_tcp_port}/")
 
@@ -205,7 +213,9 @@ async def test_multiple_requests(lightweight_server):
     """Test making multiple sequential requests."""
     port = lightweight_server
 
-    async with GeminiClient(timeout=5.0, verify_ssl=False) as client:
+    async with GeminiClient(
+        timeout=5.0, verify_ssl=False, trust_on_first_use=False
+    ) as client:
         # Get index
         response1 = await client.get(f"gemini://127.0.0.1:{port}/")
         assert response1.status == 20
