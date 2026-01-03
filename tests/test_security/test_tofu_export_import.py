@@ -459,3 +459,114 @@ class TestTOFURoundTrip:
             assert (
                 original_by_key[key]["first_seen"] == imported_by_key[key]["first_seen"]
             )
+
+
+class TestTOFURevokeByHostname:
+    """Test TOFU database revoke by hostname functionality."""
+
+    def test_count_by_hostname_empty_database(self, tmp_path: Path):
+        """Test counting entries for a hostname in an empty database."""
+        db_path = tmp_path / "tofu.db"
+        db = TOFUDatabase(db_path)
+
+        count = db.count_by_hostname("example.com")
+        assert count == 0
+
+    def test_count_by_hostname_single_entry(
+        self, tmp_path: Path, test_cert: x509.Certificate
+    ):
+        """Test counting when hostname has a single entry."""
+        db_path = tmp_path / "tofu.db"
+        db = TOFUDatabase(db_path)
+        db.trust("example.com", 1965, test_cert)
+
+        count = db.count_by_hostname("example.com")
+        assert count == 1
+
+    def test_count_by_hostname_multiple_ports(
+        self, tmp_path: Path, test_cert: x509.Certificate
+    ):
+        """Test counting when hostname has entries on multiple ports."""
+        db_path = tmp_path / "tofu.db"
+        db = TOFUDatabase(db_path)
+        db.trust("example.com", 1965, test_cert)
+        db.trust("example.com", 1966, test_cert)
+        db.trust("example.com", 300, test_cert)
+
+        count = db.count_by_hostname("example.com")
+        assert count == 3
+
+    def test_count_by_hostname_ignores_other_hosts(
+        self, tmp_path: Path, test_cert: x509.Certificate
+    ):
+        """Test counting only counts entries for the specified hostname."""
+        db_path = tmp_path / "tofu.db"
+        db = TOFUDatabase(db_path)
+        db.trust("example.com", 1965, test_cert)
+        db.trust("example.com", 1966, test_cert)
+        db.trust("other.com", 1965, test_cert)
+
+        count = db.count_by_hostname("example.com")
+        assert count == 2
+
+    def test_revoke_by_hostname_empty_database(self, tmp_path: Path):
+        """Test revoking by hostname in an empty database returns 0."""
+        db_path = tmp_path / "tofu.db"
+        db = TOFUDatabase(db_path)
+
+        deleted = db.revoke_by_hostname("example.com")
+        assert deleted == 0
+
+    def test_revoke_by_hostname_single_entry(
+        self, tmp_path: Path, test_cert: x509.Certificate
+    ):
+        """Test revoking a single entry by hostname."""
+        db_path = tmp_path / "tofu.db"
+        db = TOFUDatabase(db_path)
+        db.trust("example.com", 1965, test_cert)
+
+        deleted = db.revoke_by_hostname("example.com")
+        assert deleted == 1
+
+        # Verify entry is gone
+        hosts = db.list_hosts()
+        assert len(hosts) == 0
+
+    def test_revoke_by_hostname_multiple_ports(
+        self, tmp_path: Path, test_cert: x509.Certificate
+    ):
+        """Test revoking all entries for a hostname with multiple ports."""
+        db_path = tmp_path / "tofu.db"
+        db = TOFUDatabase(db_path)
+        db.trust("example.com", 1965, test_cert)
+        db.trust("example.com", 1966, test_cert)
+        db.trust("example.com", 300, test_cert)
+
+        deleted = db.revoke_by_hostname("example.com")
+        assert deleted == 3
+
+        # Verify all entries are gone
+        hosts = db.list_hosts()
+        assert len(hosts) == 0
+
+    def test_revoke_by_hostname_preserves_other_hosts(
+        self, tmp_path: Path, test_cert: x509.Certificate
+    ):
+        """Test revoking by hostname only removes entries for that hostname."""
+        db_path = tmp_path / "tofu.db"
+        db = TOFUDatabase(db_path)
+        db.trust("example.com", 1965, test_cert)
+        db.trust("example.com", 1966, test_cert)
+        db.trust("other.com", 1965, test_cert)
+        db.trust("another.org", 300, test_cert)
+
+        deleted = db.revoke_by_hostname("example.com")
+        assert deleted == 2
+
+        # Verify other hosts are still there
+        hosts = db.list_hosts()
+        assert len(hosts) == 2
+        hostnames = {h["hostname"] for h in hosts}
+        assert "other.com" in hostnames
+        assert "another.org" in hostnames
+        assert "example.com" not in hostnames

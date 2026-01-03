@@ -53,13 +53,19 @@ This connects to the server, retrieves its certificate, and updates the database
 
 ## Revoke Trust
 
-To remove a host from your trusted database:
+To remove all entries for a host from your trusted database:
 
 ```bash
 nauyaca tofu revoke example.com
 ```
 
-For non-standard ports:
+This removes all port entries for that hostname (with confirmation). Use `--force` to skip confirmation:
+
+```bash
+nauyaca tofu revoke example.com --force
+```
+
+To revoke only a specific port:
 
 ```bash
 nauyaca tofu revoke example.com --port 1965

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Bulk TOFU revocation by hostname with `nauyaca tofu revoke <hostname>` (omit `--port` to revoke all entries for a hostname)
+- `--force` flag for `tofu revoke` to skip confirmation on bulk revocation
 - Hot-reload functionality for development server with `--reload` flag
   - Automatic server restart when source files or content changes
   - File watching using `watchfiles` library (with polling fallback)
@@ -18,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Graceful shutdown with 10-second timeout before force-kill
 - Comprehensive hot-reload documentation in how-to guide
 - Async request handler support for GeminiServerProtocol
+
+### Changed
+
+- **Breaking:** `nauyaca tofu revoke <hostname>` without `--port` now revokes ALL entries for that hostname instead of just port 1965. Use `--port 1965` explicitly for the old behavior.
 
 ## [0.4.0] - 2026-01-03
 

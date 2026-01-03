@@ -201,6 +201,47 @@ class TOFUDatabase:
 
             return cursor.rowcount > 0
 
+    def count_by_hostname(self, hostname: str) -> int:
+        """Count all entries for a hostname across all ports.
+
+        Args:
+            hostname: The hostname to count entries for.
+
+        Returns:
+            Number of entries for this hostname.
+        """
+        with self._connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT COUNT(*) FROM known_hosts WHERE hostname = ?",
+                (hostname,),
+            )
+            row = cursor.fetchone()
+            return row[0] if row else 0
+
+    def revoke_by_hostname(self, hostname: str) -> int:
+        """Remove all entries for a hostname from the TOFU database.
+
+        This removes all port entries for the given hostname.
+
+        Args:
+            hostname: The hostname to revoke all entries for.
+
+        Returns:
+            Number of entries removed.
+        """
+        with self._connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "DELETE FROM known_hosts WHERE hostname = ?",
+                (hostname,),
+            )
+            conn.commit()
+
+            return cursor.rowcount
+
     def list_hosts(self) -> list[dict[str, str]]:
         """List all known hosts in the database.
 

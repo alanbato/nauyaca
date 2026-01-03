@@ -596,25 +596,55 @@ def tofu_list() -> None:
 @tofu_app.command("revoke")
 def tofu_revoke(
     hostname: str = typer.Argument(..., help="Hostname to revoke"),
-    port: int = typer.Option(DEFAULT_PORT, "--port", "-p", help="Port number"),
+    port: int | None = typer.Option(
+        None, "--port", "-p", help="Port number (omit to revoke all ports)"
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Skip confirmation for bulk revocation"
+    ),
 ) -> None:
     """Remove a host from the TOFU database.
 
+    When --port is specified, revokes only that specific host:port entry.
+    When --port is omitted, revokes ALL entries for the hostname (with confirmation).
+
     Examples:
 
-        # Revoke a host
+        # Revoke all entries for a host (with confirmation)
         $ nauyaca tofu revoke example.com
 
-        # Revoke with custom port
+        # Revoke all entries without confirmation
+        $ nauyaca tofu revoke example.com --force
+
+        # Revoke a specific port only
         $ nauyaca tofu revoke example.com --port 1965
     """
     from .security.tofu import TOFUDatabase
 
     db = TOFUDatabase()
-    if db.revoke(hostname, port):
-        console.print(f"[green]Revoked certificate for {hostname}:{port}[/]")
+
+    if port is not None:
+        # Specific port: revoke single entry (no confirmation needed)
+        if db.revoke(hostname, port):
+            console.print(f"[green]Revoked certificate for {hostname}:{port}[/]")
+        else:
+            console.print(f"[yellow]Host {hostname}:{port} not in database[/]")
     else:
-        console.print(f"[yellow]Host {hostname}:{port} not in database[/]")
+        # No port specified: revoke all entries for hostname
+        count = db.count_by_hostname(hostname)
+
+        if count == 0:
+            console.print(f"[yellow]Host {hostname} not in database[/]")
+            return
+
+        # Confirm bulk deletion
+        if not force:
+            confirm = typer.confirm(f"Revoke all {count} entries for {hostname}?")
+            if not confirm:
+                raise typer.Abort()
+
+        deleted = db.revoke_by_hostname(hostname)
+        console.print(f"[green]Revoked {deleted} entries for {hostname}[/]")
 
 
 @tofu_app.command("trust")

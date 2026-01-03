@@ -387,6 +387,8 @@ nauyaca tofu trust gemini.example.com
 
 Remove a host from the TOFU database.
 
+When `--port` is omitted, revokes ALL entries for the hostname across all ports (with confirmation). When `--port` is specified, revokes only that specific host:port entry.
+
 **Syntax:**
 
 ```bash
@@ -403,15 +405,19 @@ nauyaca tofu revoke [OPTIONS] HOSTNAME
 
 | Option | Short | Type | Default | Description |
 |--------|-------|------|---------|-------------|
-| `--port` | `-p` | Integer | 1965 | Port number |
+| `--port` | `-p` | Integer | None | Port number (omit to revoke all ports) |
+| `--force` | `-f` | Flag | False | Skip confirmation for bulk revocation |
 
 **Examples:**
 
 ```bash
-# Revoke a host on default port
+# Revoke all entries for a host (with confirmation)
 nauyaca tofu revoke example.com
 
-# Revoke with custom port
+# Revoke all entries without confirmation
+nauyaca tofu revoke example.com --force
+
+# Revoke a specific port only
 nauyaca tofu revoke example.com --port 1965
 ```
 
