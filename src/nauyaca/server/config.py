@@ -223,11 +223,13 @@ class ServerConfig:
             rate_limit_refill_rate=rate_limit.get("refill_rate", 1.0),
             rate_limit_retry_after=rate_limit.get("retry_after", 30),
             # Access control
+            enable_access_control=access_control.get("enabled", True),
             access_control_allow_list=access_control.get("allow_list"),
             access_control_deny_list=access_control.get("deny_list"),
             access_control_default_allow=access_control.get("default_allow", True),
             # Path-based certificate authentication
             certificate_auth_paths=certificate_auth.get("paths"),
+            require_client_cert=server.get("require_client_cert", False),
             # Logging/privacy
             hash_client_ips=logging_config.get("hash_ips", True),
         )

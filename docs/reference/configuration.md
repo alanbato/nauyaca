@@ -31,6 +31,7 @@ Core server settings including network binding, TLS configuration, and content s
 | `certfile` | string | `null` | Path to TLS certificate file (PEM format). If omitted, a self-signed certificate will be auto-generated for testing. |
 | `keyfile` | string | `null` | Path to TLS private key file (PEM format). Must be provided together with `certfile`. |
 | `max_file_size` | integer | `104857600` | Maximum file size to serve in bytes. Default is 100 MiB (104857600 bytes). Gemini is not designed for large file transfers. |
+| `require_client_cert` | boolean | `false` | Request client certificates using PyOpenSSL. When `true`, the server can accept any self-signed client certificate. Use with `[[certificate_auth.paths]]` rules to enforce authorization. |
 
 !!! warning "Production TLS Certificates"
     Auto-generated self-signed certificates are only suitable for testing. For production deployments, generate proper certificates using tools like [agate-cert](https://github.com/mbrubeck/agate) or OpenSSL.
@@ -106,6 +107,7 @@ IP-based access control with support for CIDR notation. Allows creating allowlis
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
+| `enabled` | boolean | `true` | Enable or disable access control. Set to `false` to completely disable IP-based access control even if lists are configured. |
 | `allow_list` | array of strings | `null` | List of allowed IP addresses/networks in CIDR notation. If set, **only** these IPs can connect (whitelist mode). |
 | `deny_list` | array of strings | `null` | List of denied IP addresses/networks in CIDR notation. These IPs are blocked from connecting (blacklist mode). |
 | `default_allow` | boolean | `true` | Default policy when an IP is not in any list. `true` = allow all unlisted IPs, `false` = deny all unlisted IPs. |
@@ -321,6 +323,7 @@ refill_rate = 1.0
 retry_after = 30
 
 [access_control]
+enabled = true
 # Allow local network and specific remote IPs
 allow_list = [
     "127.0.0.0/8",

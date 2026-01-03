@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-01-03
+
+### Added
+- `require_client_cert` configuration option to explicitly trigger PyOpenSSL for accepting any self-signed client certificate
+- `enable_access_control` configuration option to explicitly enable/disable access control middleware
+
+### Changed
+- PyOpenSSL is now triggered when `require_client_cert=True` in ServerConfig, allowing servers to accept arbitrary self-signed client certificates without pre-loading them as CAs
+- Improved separation between TLS layer (certificate acceptance) and middleware layer (certificate authorization)
+
+### Fixed
+- Integration tests now properly isolate TOFU databases to prevent certificate fingerprint conflicts between test runs
+- Test fixtures now use correct `CertificateAuthConfig` API with `path_rules` instead of non-existent parameters
+
+## [0.3.2] - 2025-11-20
+
+### Fixed
+- Python 3.10 compatibility for TOML parsing (use tomli backport)
+
+## [0.3.1] - 2025-11-20
+
+### Fixed
+- Version number in pyproject.toml
+
+## [0.3.0] - 2025-11-20
+
 ### Changed
 - Documentation now hosted on Read the Docs
 
@@ -64,6 +90,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Basic server and client functionality
 - TLS certificate support
 
-[Unreleased]: https://github.com/alanbato/nauyaca/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/alanbato/nauyaca/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/alanbato/nauyaca/compare/v0.3.2...v0.4.0
+[0.3.2]: https://github.com/alanbato/nauyaca/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/alanbato/nauyaca/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/alanbato/nauyaca/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/alanbato/nauyaca/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/alanbato/nauyaca/releases/tag/v0.1.0
