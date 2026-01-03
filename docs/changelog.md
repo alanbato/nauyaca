@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Hot-reload functionality for development server with `--reload` flag
+  - Automatic server restart when source files or content changes
+  - File watching using `watchfiles` library (with polling fallback)
+  - Configurable watch directories via `--reload-dir`
+  - Configurable file extensions via `--reload-ext`
+  - Default watches `.py` and `.gmi` files
+  - Graceful shutdown with 10-second timeout before force-kill
+- Comprehensive hot-reload documentation in how-to guide
+- Async request handler support for GeminiServerProtocol
+
 ## [0.4.0] - 2026-01-03
 
 ### Added

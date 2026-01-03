@@ -41,6 +41,9 @@ nauyaca serve ./capsule
 
 # With configuration file
 nauyaca serve --config config.toml
+
+# With hot-reload for development
+nauyaca serve ./capsule --reload
 ```
 
 ### Fetch Content

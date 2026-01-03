@@ -25,7 +25,7 @@ class ReloadConfig:
     """
 
     watch_dirs: list[Path] = field(default_factory=list)
-    watch_extensions: list[str] = field(default_factory=lambda: [".py"])
+    watch_extensions: list[str] = field(default_factory=lambda: [".py", ".gmi"])
     polling_interval: float = 1.0
 
     def __post_init__(self) -> None:

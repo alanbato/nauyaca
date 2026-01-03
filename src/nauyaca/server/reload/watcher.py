@@ -96,6 +96,7 @@ class WatchfilesWatcher(FileWatcher):
         # We only need the first set of changes
         for changes in watch(*watch_paths):
             changed_files: list[Path] = []
+            filtered_count = 0
 
             for _change_type, path_str in changes:
                 path = Path(path_str)
@@ -103,9 +104,23 @@ class WatchfilesWatcher(FileWatcher):
                 # Filter by extension
                 if self.config.should_watch_file(path):
                     changed_files.append(path)
+                else:
+                    filtered_count += 1
 
             if changed_files:
+                logger.debug(
+                    "changes_detected",
+                    matched=len(changed_files),
+                    filtered=filtered_count,
+                    files=[str(f) for f in changed_files[:3]],
+                )
                 return changed_files
+            elif filtered_count > 0:
+                logger.debug(
+                    "changes_filtered",
+                    filtered=filtered_count,
+                    extensions=self.config.watch_extensions,
+                )
 
         return []  # Should not reach here
 
@@ -126,6 +141,11 @@ class PollingWatcher(FileWatcher):
         """
         super().__init__(config)
         self._file_mtimes: dict[Path, float] = self._scan_files()
+        logger.debug(
+            "polling_watcher_initialized",
+            tracked_files=len(self._file_mtimes),
+            extensions=self.config.watch_extensions,
+        )
 
     def _scan_files(self) -> dict[Path, float]:
         """Scan all watched files and record modification times.
@@ -184,4 +204,9 @@ class PollingWatcher(FileWatcher):
             self._file_mtimes = current_mtimes
 
             if changed_files:
+                logger.debug(
+                    "changes_detected",
+                    matched=len(changed_files),
+                    files=[str(f) for f in changed_files[:3]],
+                )
                 return changed_files

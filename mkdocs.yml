@@ -112,6 +112,7 @@ nav:
       - Access Control: how-to/access-control.md
       - Client Certificates: how-to/client-certificates.md
       - Logging: how-to/logging.md
+      - Hot-Reload: how-to/hot-reload.md
   - Reference:
       - reference/index.md
       - CLI: reference/cli.md

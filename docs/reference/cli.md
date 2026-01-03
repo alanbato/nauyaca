@@ -134,9 +134,15 @@ nauyaca serve [OPTIONS] [ROOT]
 | `--hash-ips/--no-hash-ips` | | Flag | True | Hash client IP addresses in logs for privacy |
 | `--max-file-size` | | Integer | 104857600 | Maximum file size to serve in bytes (default: 100 MiB) |
 | `--require-client-cert` | | Flag | False | Require client certificates for all connections (status 60 if missing) |
+| `--reload` | | Flag | False | Enable auto-reload: restart server when files change (development only) |
+| `--reload-dir` | | Path | None | Directory to watch for changes (repeatable). Defaults to document_root and src/nauyaca |
+| `--reload-ext` | | String | None | File extension to watch (repeatable). Defaults to .py and .gmi |
 
 !!! tip "Configuration File vs CLI Arguments"
     When using `--config`, CLI arguments override values from the configuration file. This allows you to use a base configuration file and selectively override specific settings.
+
+!!! warning "Hot-Reload is for Development Only"
+    The `--reload` flag should never be used in production. It's designed for development workflows where you want the server to automatically restart when source files or content changes.
 
 **Examples:**
 
@@ -173,6 +179,15 @@ nauyaca serve ./capsule --require-client-cert
 
 # Serve with privacy-preserving IP hashing disabled
 nauyaca serve ./capsule --no-hash-ips
+
+# Serve with hot-reload for development
+nauyaca serve ./capsule --reload
+
+# Hot-reload watching custom directories
+nauyaca serve ./capsule --reload --reload-dir ./my-handlers
+
+# Hot-reload watching additional file types
+nauyaca serve ./capsule --reload --reload-ext .toml --reload-ext .txt
 ```
 
 **Environment Variables:**

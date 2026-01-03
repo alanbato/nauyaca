@@ -65,6 +65,14 @@ How-to guides are practical, task-oriented instructions for solving specific pro
 
     [:octicons-arrow-right-24: Logging Guide](logging.md)
 
+-   :material-reload: **Hot-Reload**
+
+    ---
+
+    Enable automatic server restart during development when source files or content changes. Configure file watching and optimize your development workflow.
+
+    [:octicons-arrow-right-24: Hot-Reload Guide](hot-reload.md)
+
 </div>
 
 ## Guide Structure

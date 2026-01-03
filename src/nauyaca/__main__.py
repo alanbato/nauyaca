@@ -328,6 +328,12 @@ def serve(
         dir_okay=True,
         resolve_path=True,
     ),
+    reload_ext: list[str] | None = typer.Option(
+        None,
+        "--reload-ext",
+        help="File extensions to watch for changes (can specify multiple times). "
+        "Defaults to .py and .gmi",
+    ),
 ) -> None:
     """Start a Gemini server to serve files from a directory.
 
@@ -415,8 +421,18 @@ def serve(
                 continue
             if arg.startswith("--reload-dir="):
                 continue
+            if arg == "--reload-ext":
+                skip_next = True
+                continue
+            if arg.startswith("--reload-ext="):
+                continue
 
             server_args.append(arg)
+
+        # Build watch extensions
+        watch_extensions: list[str] | None = None
+        if reload_ext:
+            watch_extensions = list(reload_ext)
 
         # Display reload info
         console.print("[bold cyan][Reload][/] Hot-reload enabled")
@@ -428,7 +444,17 @@ def serve(
         from .server.reload import ReloadConfig, run_with_reload
 
         try:
-            reload_config = ReloadConfig(watch_dirs=watch_dirs)
+            if watch_extensions:
+                reload_config = ReloadConfig(
+                    watch_dirs=watch_dirs, watch_extensions=watch_extensions
+                )
+            else:
+                reload_config = ReloadConfig(watch_dirs=watch_dirs)
+
+            # Display extensions being watched
+            exts = ", ".join(reload_config.watch_extensions)
+            console.print(f"[cyan][Reload][/] Extensions: {exts}")
+
             run_with_reload(reload_config, server_args)
         except KeyboardInterrupt:
             console.print("\n[bold blue][Reload][/] Shutting down...")
