@@ -1,0 +1,59 @@
+/* Additional Pygments syntax highlighting rules not covered by Material theme */
+.highlight .k,
+.highlight .kn,
+.highlight .kd,
+.highlight .kc,
+.highlight .kr,
+.highlight .kp {
+  color: var(--md-code-hl-keyword-color);
+}
+
+.highlight .s,
+.highlight .s1,
+.highlight .s2,
+.highlight .sa,
+.highlight .sb,
+.highlight .sc,
+.highlight .se {
+  color: var(--md-code-hl-string-color);
+}
+
+.highlight .nf,
+.highlight .fm,
+.highlight .nc {
+  color: var(--md-code-hl-function-color);
+}
+
+.highlight .nd,
+.highlight .ne {
+  color: var(--md-code-hl-special-color);
+}
+
+.highlight .o,
+.highlight .ow {
+  color: var(--md-code-hl-operator-color);
+}
+
+.highlight .c,
+.highlight .c1,
+.highlight .cm,
+.highlight .ch,
+.highlight .cs,
+.highlight .cp,
+.highlight .cpf {
+  color: var(--md-code-hl-comment-color);
+}
+
+.highlight .m,
+.highlight .mi,
+.highlight .mf,
+.highlight .mh,
+.highlight .mo,
+.highlight .mb {
+  color: var(--md-code-hl-number-color);
+}
+
+.highlight .nb,
+.highlight .bp {
+  color: var(--md-code-hl-constant-color);
+}
