@@ -98,7 +98,7 @@ class TOFUDatabase:
             cert: The certificate to trust.
         """
         fingerprint = get_certificate_fingerprint(cert)
-        now = datetime.datetime.now(datetime.UTC).isoformat()  # type: ignore[attr-defined]
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
         with self._connection() as conn:
             cursor = conn.cursor()
@@ -168,7 +168,7 @@ class TOFUDatabase:
 
             if stored_fingerprint == fingerprint:
                 # Certificate matches - update last_seen
-                now = datetime.datetime.now(datetime.UTC).isoformat()  # type: ignore[attr-defined]
+                now = datetime.datetime.now(datetime.timezone.utc).isoformat()
                 cursor.execute(
                     "UPDATE known_hosts SET last_seen = ? "
                     "WHERE hostname = ? AND port = ?",
@@ -280,7 +280,7 @@ class TOFUDatabase:
         # Build TOML structure
         data: dict[str, Any] = {
             "_metadata": {
-                "exported_at": datetime.datetime.now(datetime.UTC).isoformat(),  # type: ignore[attr-defined]
+                "exported_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 "version": "1.0",
             },
             "hosts": {},
@@ -388,7 +388,7 @@ class TOFUDatabase:
 
                 if existing is None:
                     # New host - add it
-                    now = datetime.datetime.now(datetime.UTC).isoformat()  # type: ignore[attr-defined]
+                    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
                     cursor.execute(
                         """
                         INSERT INTO known_hosts
@@ -412,7 +412,7 @@ class TOFUDatabase:
                     if should_update:
                         # Update with new fingerprint
                         # Preserve first_seen, update last_seen
-                        now = datetime.datetime.now(datetime.UTC).isoformat()  # type: ignore[attr-defined]
+                        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
                         cursor.execute(
                             """
                             UPDATE known_hosts

@@ -59,9 +59,9 @@ def generate_self_signed_cert(
         .issuer_name(issuer)
         .public_key(private_key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(datetime.datetime.now(datetime.UTC))  # type: ignore[attr-defined]
+        .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
         .not_valid_after(
-            datetime.datetime.now(datetime.UTC)  # type: ignore[attr-defined]
+            datetime.datetime.now(datetime.timezone.utc)
             + datetime.timedelta(days=valid_days)
         )
         .add_extension(
@@ -105,9 +105,7 @@ def load_certificate(cert_path: Path) -> x509.Certificate:
         raise ValueError(f"Invalid certificate file: {e}") from e
 
 
-def get_certificate_fingerprint(
-    cert: x509.Certificate, algorithm: str = "sha256"
-) -> str:
+def get_certificate_fingerprint(cert: x509.Certificate, algorithm: str = "sha256") -> str:
     """Calculate the fingerprint of a certificate.
 
     Args:
@@ -160,7 +158,7 @@ def is_certificate_expired(cert: x509.Certificate) -> bool:
     Returns:
         True if the certificate has expired, False otherwise.
     """
-    now = datetime.datetime.now(datetime.UTC)  # type: ignore[attr-defined]
+    now = datetime.datetime.now(datetime.timezone.utc)
     return now > cert.not_valid_after_utc
 
 
