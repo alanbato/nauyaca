@@ -163,16 +163,30 @@ class GeminiClientProtocol(asyncio.Protocol):
             return
 
         # Decode body (only present for 2x success responses)
-        body = None
+        body: str | bytes | None = None
         if 20 <= self.status < 30:  # type: ignore
-            # Get charset from meta if specified, default to utf-8
-            charset = "utf-8"
-            # TODO: Parse charset from meta (e.g., "text/gemini; charset=iso-8859-1")
-            try:
-                body = self.buffer.decode(charset)
-            except UnicodeDecodeError as e:
-                self.response_future.set_exception(e)
-                return
+            # Check if this is text content by examining MIME type
+            mime_type = (self.meta or "").split(";")[0].strip().lower()
+            is_text = mime_type.startswith("text/") or mime_type == ""
+
+            if is_text:
+                # Get charset from meta if specified, default to utf-8
+                charset = "utf-8"
+                # Parse charset from meta (e.g., "text/gemini; charset=iso-8859-1")
+                if "charset=" in (self.meta or "").lower():
+                    for part in (self.meta or "").split(";"):
+                        part = part.strip()
+                        if part.lower().startswith("charset="):
+                            charset = part.split("=", 1)[1].strip().strip("\"'")
+                            break
+                try:
+                    body = self.buffer.decode(charset)
+                except UnicodeDecodeError as e:
+                    self.response_future.set_exception(e)
+                    return
+            else:
+                # Binary content - return raw bytes
+                body = self.buffer
 
         # Create and set the response
         response = GeminiResponse(

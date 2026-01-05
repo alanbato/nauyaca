@@ -19,6 +19,8 @@ class GeminiResponse:
             MIME type. For redirects (3x), this is the redirect URL. For errors,
             this is an error message. For input (1x), this is the prompt.
         body: Response body content (only present for 2x success responses).
+            For text/* MIME types, this is a decoded string.
+            For binary MIME types (images, audio, etc.), this is raw bytes.
         url: The URL this response came from (useful for tracking redirects).
 
     Examples:
@@ -36,7 +38,7 @@ class GeminiResponse:
 
     status: int
     meta: str
-    body: str | None = None
+    body: str | bytes | None = None
     url: str | None = None
 
     def is_success(self) -> bool:
