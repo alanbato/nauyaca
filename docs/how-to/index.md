@@ -73,6 +73,14 @@ How-to guides are practical, task-oriented instructions for solving specific pro
 
     [:octicons-arrow-right-24: Hot-Reload Guide](hot-reload.md)
 
+-   :material-upload: **Titan Uploads**
+
+    ---
+
+    Enable file uploads to your Gemini server using the Titan protocol. Configure upload directories, authentication tokens, size limits, and MIME type filtering.
+
+    [:octicons-arrow-right-24: Titan Uploads Guide](titan-uploads.md)
+
 </div>
 
 ## Guide Structure

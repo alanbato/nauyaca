@@ -265,6 +265,60 @@ allowed_fingerprints = ["sha256:admin-cert-fingerprint-here"]
 
 ---
 
+## [titan] Section
+
+Titan is Gemini's companion upload protocol. This section configures server-side upload handling.
+
+!!! warning "Disabled by Default"
+    Titan uploads are disabled by default for security. Only enable if you need upload functionality.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | boolean | `false` | Enable Titan upload support. When `false`, all Titan requests are rejected. |
+| `upload_dir` | string | (required if enabled) | Directory for storing uploaded files. Must be different from `document_root` for security. Created automatically if it doesn't exist. |
+| `max_upload_size` | integer | `10485760` | Maximum upload size in bytes. Default is 10 MiB (10485760 bytes). Uploads exceeding this limit are rejected with status 50. |
+| `allowed_mime_types` | array of strings | `null` | List of allowed MIME types. If `null`, all types are accepted. Uploads with disallowed types are rejected with status 59. |
+| `auth_tokens` | array of strings | `null` | List of valid authentication tokens. If `null`, no authentication is required (not recommended for public servers). Invalid/missing tokens result in status 60. |
+| `enable_delete` | boolean | `false` | Allow delete operations via zero-byte uploads. When `false`, delete requests are rejected with status 50. |
+
+### Security Considerations
+
+- **Separate upload directory**: Keep `upload_dir` separate from `document_root` to prevent overwrites
+- **Authentication**: Always use `auth_tokens` on public servers
+- **Size limits**: Set appropriate `max_upload_size` to prevent abuse
+- **MIME filtering**: Restrict `allowed_mime_types` to expected content types
+- **Delete operations**: Only enable `enable_delete` if you need this functionality
+
+### Example Configurations
+
+**Wiki with editing**:
+```toml
+[titan]
+enabled = true
+upload_dir = "./wiki-content"
+max_upload_size = 1048576  # 1 MiB
+allowed_mime_types = ["text/gemini", "text/plain"]
+auth_tokens = ["editor-token-abc123"]
+enable_delete = true
+```
+
+**Image gallery**:
+```toml
+[titan]
+enabled = true
+upload_dir = "./gallery"
+max_upload_size = 5242880  # 5 MiB
+allowed_mime_types = ["image/png", "image/jpeg", "image/gif"]
+auth_tokens = ["gallery-upload-token"]
+enable_delete = false
+```
+
+### CLI Overrides
+
+Titan configuration cannot be set via CLI arguments. Use a configuration file to enable and configure Titan uploads.
+
+---
+
 ## [logging] Section
 
 Privacy-preserving logging configuration.
@@ -352,6 +406,15 @@ allowed_fingerprints = [
 
 [logging]
 hash_ips = true
+
+# Titan upload support (optional)
+[titan]
+enabled = true
+upload_dir = "/var/gemini/uploads"
+max_upload_size = 10485760  # 10 MiB
+allowed_mime_types = ["text/gemini", "text/plain"]
+auth_tokens = ["upload-token-abc123"]
+enable_delete = false
 ```
 
 ---

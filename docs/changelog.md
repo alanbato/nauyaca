@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Titan protocol support** for file uploads
+  - Server-side upload handling with `FileUploadHandler`
+  - Client-side `upload()` and `delete()` methods on `GeminiClient`
+  - TOML configuration via `[titan]` section
+  - Path traversal protection for uploaded files
+  - Token-based authentication support
+  - MIME type filtering
+  - Configurable size limits
+  - Zero-byte uploads for deletion (disabled by default)
+  - Binary content support in server responses
+- `TitanRequest` class for parsing Titan URL parameters
+- `TitanClientProtocol` for client-side Titan connections
+- Comprehensive Titan documentation in how-to guide
 - Bulk TOFU revocation by hostname with `nauyaca tofu revoke <hostname>` (omit `--port` to revoke all entries for a hostname)
 - `--force` flag for `tofu revoke` to skip confirmation on bulk revocation
 - Hot-reload functionality for development server with `--reload` flag
@@ -20,6 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Graceful shutdown with 10-second timeout before force-kill
 - Comprehensive hot-reload documentation in how-to guide
 - Async request handler support for GeminiServerProtocol
+
+### Security
+
+- Titan uploads disabled by default for security
+- Delete operations disabled by default
+- Authentication tokens required for upload endpoints (recommended)
 
 ### Changed
 

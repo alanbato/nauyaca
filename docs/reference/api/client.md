@@ -113,6 +113,53 @@ async def main():
             print(f"Invalid URL or redirect: {e}")
 ```
 
+### Uploading Content (Titan)
+
+Upload content to a Gemini server using the Titan protocol:
+
+```python
+async def main():
+    async with GeminiClient() as client:
+        # Upload text content
+        response = await client.upload(
+            'gemini://example.com/wiki/page.gmi',
+            '# My Page\n\nContent here...',
+            mime_type='text/gemini',
+            token='auth-token',
+        )
+
+        if response.is_success():
+            print("Upload successful!")
+
+        # Upload binary content
+        with open('image.png', 'rb') as f:
+            response = await client.upload(
+                'gemini://example.com/images/photo.png',
+                f.read(),
+                mime_type='image/png',
+                token='auth-token',
+            )
+```
+
+### Deleting Content (Titan)
+
+Delete a resource using a zero-byte Titan upload:
+
+```python
+async def main():
+    async with GeminiClient() as client:
+        response = await client.delete(
+            'gemini://example.com/wiki/old-page.gmi',
+            token='auth-token',
+        )
+
+        if response.is_success():
+            print("Deleted!")
+```
+
+!!! note "Server Support Required"
+    The server must have Titan enabled with `enable_delete = true` for delete operations to succeed.
+
 ### Disabling Redirects
 
 Sometimes you want to handle redirects manually:

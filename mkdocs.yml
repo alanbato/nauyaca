@@ -115,6 +115,7 @@ nav:
       - Client Certificates: how-to/client-certificates.md
       - Logging: how-to/logging.md
       - Hot-Reload: how-to/hot-reload.md
+      - Titan Uploads: how-to/titan-uploads.md
   - Reference:
       - reference/index.md
       - CLI: reference/cli.md
