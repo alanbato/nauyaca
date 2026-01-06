@@ -11,9 +11,12 @@ if sys.version_info >= (3, 11):
 else:
     import tomli as tomllib
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..protocol.constants import DEFAULT_MAX_FILE_SIZE, DEFAULT_PORT
+
+if TYPE_CHECKING:
+    from .handler import FileUploadHandler
 from .middleware import (
     AccessControlConfig,
     CertificateAuthConfig,
@@ -74,6 +77,14 @@ class ServerConfig:
     # Logging/privacy
     hash_client_ips: bool = True
 
+    # Titan upload configuration
+    enable_titan: bool = False  # Disabled by default for security
+    titan_upload_dir: Path | str | None = None
+    titan_max_upload_size: int = 10 * 1024 * 1024  # 10 MiB default
+    titan_allowed_mime_types: list[str] | None = None  # None = all allowed
+    titan_auth_tokens: list[str] | None = None  # None = no auth required
+    titan_enable_delete: bool = False  # Delete disabled by default for safety
+
     def __post_init__(self) -> None:
         """Validate and normalize configuration after initialization."""
         # Convert string paths to Path objects
@@ -103,6 +114,17 @@ class ServerConfig:
         # Validate port range
         if not (1 <= self.port <= 65535):
             raise ValueError(f"Invalid port number: {self.port} (must be 1-65535)")
+
+        # Validate Titan configuration
+        if isinstance(self.titan_upload_dir, str):
+            self.titan_upload_dir = Path(self.titan_upload_dir)
+
+        if self.enable_titan:
+            if self.titan_upload_dir is None:
+                raise ValueError("titan_upload_dir is required when Titan is enabled")
+            # Create upload directory if it doesn't exist
+            if not self.titan_upload_dir.exists():
+                self.titan_upload_dir.mkdir(parents=True, exist_ok=True)
 
     def validate(self) -> None:
         """Validate the server configuration.
@@ -173,6 +195,28 @@ class ServerConfig:
 
         return CertificateAuthConfig(path_rules=path_rules)
 
+    def get_upload_handler(self) -> "FileUploadHandler | None":
+        """Get the Titan upload handler if Titan is enabled.
+
+        Returns:
+            FileUploadHandler instance if Titan is enabled, None otherwise.
+        """
+        if not self.enable_titan or self.titan_upload_dir is None:
+            return None
+
+        from .handler import FileUploadHandler
+
+        # Convert auth tokens list to set
+        auth_tokens = set(self.titan_auth_tokens) if self.titan_auth_tokens else None
+
+        return FileUploadHandler(
+            upload_dir=self.titan_upload_dir,
+            max_size=self.titan_max_upload_size,
+            allowed_types=self.titan_allowed_mime_types,
+            auth_tokens=auth_tokens,
+            enable_delete=self.titan_enable_delete,
+        )
+
     @classmethod
     def from_toml(cls, path: Path) -> "ServerConfig":
         """Load configuration from TOML file.
@@ -207,6 +251,7 @@ class ServerConfig:
         access_control = data.get("access_control", {})
         certificate_auth = data.get("certificate_auth", {})
         logging_config = data.get("logging", {})
+        titan = data.get("titan", {})
 
         # Build config with proper type conversions
         return cls(
@@ -232,4 +277,11 @@ class ServerConfig:
             require_client_cert=server.get("require_client_cert", False),
             # Logging/privacy
             hash_client_ips=logging_config.get("hash_ips", True),
+            # Titan upload configuration
+            enable_titan=titan.get("enabled", False),
+            titan_upload_dir=titan.get("upload_dir"),
+            titan_max_upload_size=titan.get("max_upload_size", 10 * 1024 * 1024),
+            titan_allowed_mime_types=titan.get("allowed_mime_types"),
+            titan_auth_tokens=titan.get("auth_tokens"),
+            titan_enable_delete=titan.get("enable_delete", False),
         )

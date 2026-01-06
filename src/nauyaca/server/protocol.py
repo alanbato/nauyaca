@@ -1,20 +1,28 @@
-"""Low-level Gemini server protocol implementation.
+"""Low-level Gemini and Titan server protocol implementation.
 
-This module implements the Gemini server protocol using asyncio's
+This module implements the Gemini and Titan server protocols using asyncio's
 Protocol/Transport pattern for efficient, non-blocking I/O.
+
+Supports both protocols on the same port:
+- Gemini (gemini://): Read-only content fetch
+- Titan (titan://): Upload content to server
 """
 
 import asyncio
 import time
 from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 from cryptography import x509
 
 from ..protocol.constants import CRLF, MAX_REQUEST_SIZE
-from ..protocol.request import GeminiRequest
+from ..protocol.request import GeminiRequest, TitanRequest
 from ..protocol.response import GeminiResponse
 from ..protocol.status import StatusCode
 from ..utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from .handler import UploadHandler
 
 logger = get_logger(__name__)
 
@@ -23,21 +31,26 @@ REQUEST_TIMEOUT = 30.0
 
 
 class GeminiServerProtocol(asyncio.Protocol):
-    """Server-side protocol for handling Gemini requests.
+    """Server-side protocol for handling Gemini and Titan requests.
 
-    This class implements asyncio.Protocol for handling Gemini server connections.
+    This class implements asyncio.Protocol for handling server connections.
     It manages the connection lifecycle, receives requests, and sends responses.
+    Supports both Gemini (read) and Titan (upload) protocols on the same port.
 
-    The protocol follows the Gemini specification:
-    1. Client connects via TLS (TLS is required by Gemini)
+    The protocol flow:
+    1. Client connects via TLS (TLS is required)
     2. Client sends URL + CRLF
-    3. Server sends status + meta + CRLF
-    4. Server sends response body (if status is 2x)
-    5. Connection closes
+       - For Gemini: URL starts with gemini://
+       - For Titan: URL starts with titan:// and includes ;size=N parameter
+    3. For Titan: Client sends content bytes (N bytes as specified)
+    4. Server sends status + meta + CRLF
+    5. Server sends response body (if status is 2x)
+    6. Connection closes
 
     Attributes:
         request_handler: Callback function that takes a GeminiRequest and
             returns a GeminiResponse.
+        upload_handler: Optional handler for Titan uploads.
         transport: The transport handling the connection.
         buffer: Buffer for accumulating incoming data.
         peer_name: Remote peer address information.
@@ -49,6 +62,7 @@ class GeminiServerProtocol(asyncio.Protocol):
             [GeminiRequest], GeminiResponse | Awaitable[GeminiResponse]
         ],
         middleware: object = None,
+        upload_handler: "UploadHandler | None" = None,
     ) -> None:
         """Initialize the server protocol.
 
@@ -57,14 +71,22 @@ class GeminiServerProtocol(asyncio.Protocol):
                 Should have signature: (GeminiRequest) -> GeminiResponse
                 or async signature: (GeminiRequest) -> Awaitable[GeminiResponse]
             middleware: Optional middleware chain for request processing.
+            upload_handler: Optional handler for Titan uploads. If None, Titan
+                requests will be rejected with 50 PERMANENT FAILURE.
         """
         self.request_handler = request_handler
         self.middleware = middleware
+        self.upload_handler = upload_handler
         self.transport: asyncio.Transport | None = None
         self.buffer = b""
         self.peer_name: tuple[str, int] | None = None
         self.request_start_time: float | None = None
         self.timeout_handle: asyncio.TimerHandle | None = None
+
+        # Titan-specific state
+        self.titan_request: TitanRequest | None = None
+        self.url_line_received = False
+        self.awaiting_titan_content = False
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         """Called when a client connects.
@@ -95,43 +117,78 @@ class GeminiServerProtocol(asyncio.Protocol):
         """Called when data is received from the client.
 
         This method may be called multiple times as data arrives. We accumulate
-        data in a buffer until we receive a complete request (URL + CRLF).
+        data in a buffer until we receive a complete request.
+
+        For Gemini: URL + CRLF
+        For Titan: URL + CRLF + content_bytes
 
         Args:
             data: Raw bytes received from the client.
         """
         self.buffer += data
 
-        # Check if request exceeds maximum size (prevent DoS)
-        if len(self.buffer) > MAX_REQUEST_SIZE:
-            self._send_error_response(
-                StatusCode.BAD_REQUEST, "Request exceeds maximum size (1024 bytes)"
-            )
+        # State 1: Waiting for URL line (Gemini or Titan)
+        if not self.url_line_received:
+            # Check if buffer exceeds maximum size without CRLF (DoS protection)
+            if len(self.buffer) > MAX_REQUEST_SIZE and CRLF not in self.buffer:
+                self._send_error_response(
+                    StatusCode.BAD_REQUEST, "Request exceeds maximum size (1024 bytes)"
+                )
+                return
+
+            # Check if we have a complete URL line (ends with CRLF)
+            if CRLF in self.buffer:
+                url_line, remaining = self.buffer.split(CRLF, 1)
+
+                # Check if URL line itself exceeds maximum size
+                # MAX_REQUEST_SIZE includes CRLF, so check url_line + 2
+                if len(url_line) + 2 > MAX_REQUEST_SIZE:
+                    self._send_error_response(
+                        StatusCode.BAD_REQUEST,
+                        "Request exceeds maximum size (1024 bytes)",
+                    )
+                    return
+
+                self.buffer = remaining
+                self.url_line_received = True
+
+                try:
+                    url = url_line.decode("utf-8")
+                except UnicodeDecodeError:
+                    self._send_error_response(
+                        StatusCode.BAD_REQUEST, "Invalid UTF-8 encoding"
+                    )
+                    return
+
+                # Protocol detection: Titan vs Gemini
+                if url.startswith("titan://"):
+                    self._handle_titan_url(url)
+                else:
+                    # Cancel timeout - we got the complete Gemini request
+                    if self.timeout_handle:
+                        self.timeout_handle.cancel()
+                        self.timeout_handle = None
+                    self._handle_gemini_request(url)
             return
 
-        # Check if we have a complete request (ends with CRLF)
-        if CRLF in self.buffer:
-            # Cancel timeout - we got the request
-            if self.timeout_handle:
-                self.timeout_handle.cancel()
-                self.timeout_handle = None
+        # State 2: Waiting for Titan content
+        if self.awaiting_titan_content and self.titan_request:
+            if len(self.buffer) >= self.titan_request.size:
+                # Cancel timeout - we got all the content
+                if self.timeout_handle:
+                    self.timeout_handle.cancel()
+                    self.timeout_handle = None
 
-            request_line, _ = self.buffer.split(CRLF, 1)
-            self._handle_request(request_line)
+                # Extract exactly the expected number of bytes
+                self.titan_request.content = self.buffer[: self.titan_request.size]
+                self._process_titan_upload()
 
-    def _handle_request(self, request_line: bytes) -> None:
-        """Process the Gemini request and send response.
+    def _handle_gemini_request(self, url: str) -> None:
+        """Process a Gemini request and send response.
 
         Args:
-            request_line: The request line (URL) as bytes.
+            url: The URL string (already decoded).
         """
-        try:
-            # Decode request line
-            url = request_line.decode("utf-8")
-        except UnicodeDecodeError:
-            self._send_error_response(StatusCode.BAD_REQUEST, "Invalid UTF-8 encoding")
-            return
-
         try:
             # Parse request
             request = GeminiRequest.from_line(url)
@@ -209,10 +266,14 @@ class GeminiServerProtocol(asyncio.Protocol):
         self.transport.write(header.encode("utf-8"))
 
         # Send body if present (only for 2x success responses)
+        # FIX: Handle both text (str) and binary (bytes) content
         if response.body:
-            self.transport.write(response.body.encode("utf-8"))
+            if isinstance(response.body, bytes):
+                self.transport.write(response.body)
+            else:
+                self.transport.write(response.body.encode("utf-8"))
 
-        # Close connection (Gemini requirement: one request per connection)
+        # Close connection (Gemini/Titan: one request per connection)
         self.transport.close()
 
     def _send_error_response(self, status: StatusCode, message: str) -> None:
@@ -424,3 +485,117 @@ class GeminiServerProtocol(asyncio.Protocol):
             return None
 
         return None
+
+    # -------------------------------------------------------------------------
+    # Titan Protocol Support
+    # -------------------------------------------------------------------------
+
+    def _handle_titan_url(self, url: str) -> None:
+        """Parse a Titan URL and prepare to receive content.
+
+        Args:
+            url: The Titan URL string (already decoded).
+        """
+        # Check if uploads are supported
+        if not self.upload_handler:
+            self._send_error_response(
+                StatusCode.PERMANENT_FAILURE,
+                "Titan uploads not supported on this server",
+            )
+            return
+
+        try:
+            self.titan_request = TitanRequest.from_line(url)
+        except ValueError as e:
+            self._send_error_response(StatusCode.BAD_REQUEST, f"Invalid Titan URL: {e}")
+            return
+
+        # Extract client certificate if present
+        client_cert = self.get_peer_certificate()
+        if client_cert:
+            from ..security.certificates import get_certificate_fingerprint
+
+            self.titan_request.client_cert = client_cert
+            self.titan_request.client_cert_fingerprint = get_certificate_fingerprint(
+                client_cert
+            )
+
+        # If size is 0 (delete request), process immediately
+        if self.titan_request.is_delete():
+            # Cancel timeout
+            if self.timeout_handle:
+                self.timeout_handle.cancel()
+                self.timeout_handle = None
+            self._process_titan_upload()
+        else:
+            # Wait for content bytes
+            self.awaiting_titan_content = True
+            # Check if we already have enough content in the buffer
+            if len(self.buffer) >= self.titan_request.size:
+                if self.timeout_handle:
+                    self.timeout_handle.cancel()
+                    self.timeout_handle = None
+                self.titan_request.content = self.buffer[: self.titan_request.size]
+                self._process_titan_upload()
+
+    def _process_titan_upload(self) -> None:
+        """Process the Titan upload through the upload handler."""
+        if not self.upload_handler or not self.titan_request:
+            self._send_error_response(
+                StatusCode.TEMPORARY_FAILURE, "Upload handler error"
+            )
+            return
+
+        client_ip = self.peer_name[0] if self.peer_name else "unknown"
+
+        try:
+            # Create async task for upload handler
+            task = asyncio.create_task(
+                self.upload_handler.handle_upload(self.titan_request)
+            )
+            task.add_done_callback(
+                lambda t: self._handle_titan_upload_result(t, client_ip)
+            )
+        except RuntimeError:
+            # No event loop running (probably in tests)
+            logger.warning(
+                "titan_upload_skipped",
+                client_ip=client_ip,
+                reason="no_event_loop",
+            )
+            self._send_error_response(
+                StatusCode.TEMPORARY_FAILURE,
+                "Server error: upload handler requires event loop",
+            )
+
+    def _handle_titan_upload_result(self, task: asyncio.Task, client_ip: str) -> None:
+        """Handle the result of a Titan upload.
+
+        Args:
+            task: The completed asyncio task.
+            client_ip: The client's IP address.
+        """
+        try:
+            response = task.result()
+
+            # Set URL for logging if not already set
+            if not response.url and self.titan_request:
+                response = GeminiResponse(
+                    status=response.status,
+                    meta=response.meta,
+                    body=response.body,
+                    url=self.titan_request.raw_url,
+                )
+
+            self._send_response(response)
+
+        except Exception as e:
+            logger.error(
+                "titan_upload_error",
+                client_ip=client_ip,
+                error=str(e),
+                exception_type=type(e).__name__,
+            )
+            self._send_error_response(
+                StatusCode.TEMPORARY_FAILURE, f"Upload error: {str(e)}"
+            )

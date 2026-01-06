@@ -15,7 +15,7 @@ from ..security.certificates import get_certificate_fingerprint
 from ..security.tls import create_client_context
 from ..security.tofu import CertificateChangedError, TOFUDatabase
 from ..utils.url import parse_url, validate_url
-from .protocol import GeminiClientProtocol
+from .protocol import GeminiClientProtocol, TitanClientProtocol
 
 
 class GeminiClient:
@@ -295,3 +295,174 @@ class GeminiClient:
 
         # Not a redirect, return the response
         return response
+
+    async def upload(
+        self,
+        url: str,
+        content: bytes | str,
+        mime_type: str = "text/gemini",
+        token: str | None = None,
+    ) -> GeminiResponse:
+        """Upload content to a Gemini server via the Titan protocol.
+
+        Titan is Gemini's upload companion protocol. It uses the same port (1965)
+        and TLS requirements as Gemini, but allows uploading content.
+
+        Args:
+            url: The target URL. Can be either gemini:// or titan:// scheme.
+                If gemini://, it will be converted to titan://.
+            content: The content to upload. Can be bytes or str (will be
+                encoded as UTF-8).
+            mime_type: MIME type of the content. Default is "text/gemini".
+            token: Optional authentication token for the server.
+
+        Returns:
+            A GeminiResponse from the server indicating success or failure.
+
+        Raises:
+            ValueError: If the URL is invalid.
+            asyncio.TimeoutError: If the request times out.
+            ConnectionError: If the connection fails.
+
+        Examples:
+            >>> # Upload text content
+            >>> response = await client.upload(
+            ...     'gemini://example.com/uploads/note.gmi',
+            ...     '# My Note\\n\\nHello, Geminispace!',
+            ... )
+
+            >>> # Upload binary content
+            >>> with open('image.png', 'rb') as f:
+            ...     response = await client.upload(
+            ...         'gemini://example.com/uploads/image.png',
+            ...         f.read(),
+            ...         mime_type='image/png',
+            ...     )
+
+            >>> # Upload with authentication
+            >>> response = await client.upload(
+            ...     'gemini://example.com/uploads/file.txt',
+            ...     'Hello!',
+            ...     token='secret-token',
+            ... )
+        """
+        # Convert content to bytes if string
+        if isinstance(content, str):
+            content_bytes = content.encode("utf-8")
+        else:
+            content_bytes = content
+
+        # Convert gemini:// to titan:// if needed
+        if url.startswith("gemini://"):
+            titan_url_base = "titan://" + url[9:]
+        elif url.startswith("titan://"):
+            titan_url_base = url
+        else:
+            raise ValueError("URL must use gemini:// or titan:// scheme")
+
+        # Build Titan URL with parameters
+        # Format: titan://host/path;size=N;mime=TYPE;token=TOKEN
+        titan_url = f"{titan_url_base};size={len(content_bytes)};mime={mime_type}"
+        if token:
+            titan_url += f";token={token}"
+
+        # Parse URL to get host and port (use the base URL without params)
+        parsed = parse_url(titan_url_base.replace("titan://", "gemini://"))
+
+        # Get event loop
+        loop = asyncio.get_running_loop()
+
+        # Create future for response
+        response_future: asyncio.Future = loop.create_future()
+
+        # Create protocol instance
+        protocol = TitanClientProtocol(titan_url, content_bytes, response_future)
+
+        # Create connection using Protocol/Transport pattern
+        try:
+            transport, protocol = await asyncio.wait_for(
+                loop.create_connection(
+                    lambda: protocol,
+                    host=parsed.hostname,
+                    port=parsed.port,
+                    ssl=self.ssl_context,
+                    server_hostname=parsed.hostname,
+                ),
+                timeout=self.timeout,
+            )
+        except TimeoutError as e:
+            raise TimeoutError(f"Connection timeout: {url}") from e
+        except OSError as e:
+            raise ConnectionError(f"Connection failed: {e}") from e
+
+        try:
+            # If TOFU is enabled, verify the certificate
+            if self.tofu_db:
+                cert = protocol.get_peer_certificate()
+                if cert:
+                    is_valid, message = self.tofu_db.verify(
+                        parsed.hostname, parsed.port, cert
+                    )
+
+                    if not is_valid and message == "changed":
+                        # Certificate changed - get old info and raise error
+                        old_info = self.tofu_db.get_host_info(
+                            parsed.hostname, parsed.port
+                        )
+                        old_fingerprint = (
+                            old_info["fingerprint"] if old_info else "unknown"
+                        )
+                        new_fingerprint = get_certificate_fingerprint(cert)
+                        raise CertificateChangedError(
+                            parsed.hostname,
+                            parsed.port,
+                            old_fingerprint,
+                            new_fingerprint,
+                        )
+                    elif message == "first_use":
+                        # First time seeing this host - trust it
+                        self.tofu_db.trust(parsed.hostname, parsed.port, cert)
+
+            # Wait for response with timeout
+            response: GeminiResponse = await asyncio.wait_for(
+                response_future, timeout=self.timeout
+            )
+            return response
+        except TimeoutError as e:
+            raise TimeoutError(f"Upload timeout: {url}") from e
+        finally:
+            # Ensure transport is closed
+            transport.close()
+
+    async def delete(
+        self,
+        url: str,
+        token: str | None = None,
+    ) -> GeminiResponse:
+        """Delete a resource via zero-byte Titan upload.
+
+        In the Titan protocol, a zero-byte upload indicates deletion.
+        The server may or may not support delete operations.
+
+        Args:
+            url: The target URL. Can be either gemini:// or titan:// scheme.
+            token: Optional authentication token for the server.
+
+        Returns:
+            A GeminiResponse from the server indicating success or failure.
+
+        Raises:
+            ValueError: If the URL is invalid.
+            asyncio.TimeoutError: If the request times out.
+            ConnectionError: If the connection fails.
+
+        Examples:
+            >>> # Delete a resource
+            >>> response = await client.delete(
+            ...     'gemini://example.com/uploads/old-file.gmi',
+            ...     token='secret-token',
+            ... )
+            >>> if response.is_success():
+            ...     print("Resource deleted")
+        """
+        return await self.upload(url, b"", mime_type="text/gemini", token=token)

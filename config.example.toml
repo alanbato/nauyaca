@@ -122,3 +122,49 @@ default_allow = true
 # When enabled, IP addresses are replaced with SHA-256 hashes
 # This allows abuse detection while protecting user privacy
 hash_ips = true
+
+[titan]
+# Titan is Gemini's upload companion protocol
+# It allows clients to upload content to the server
+# SECURITY: Titan is disabled by default for safety
+
+# Enable Titan upload support
+# enabled = true
+
+# Directory where uploaded files are stored (required if enabled)
+# IMPORTANT: This should be different from document_root for security
+# upload_dir = "./uploads"
+
+# Maximum upload size in bytes (default: 10 MiB)
+# max_upload_size = 10485760
+
+# Allowed MIME types for uploads (empty = all types allowed)
+# Uncomment to restrict to specific types:
+# allowed_mime_types = ["text/gemini", "text/plain", "text/markdown"]
+
+# Authentication tokens (empty = no authentication required)
+# SECURITY: Strongly recommended for public servers
+# Uncomment and set your own secure tokens:
+# auth_tokens = ["secret-token-1", "secret-token-2"]
+
+# Enable delete operations via zero-byte uploads
+# SECURITY: Disabled by default for safety
+# enable_delete = false
+
+# Example: Basic Titan configuration for a wiki
+# [titan]
+# enabled = true
+# upload_dir = "./wiki-uploads"
+# max_upload_size = 1048576  # 1 MiB for text content
+# allowed_mime_types = ["text/gemini"]
+# auth_tokens = ["wiki-editor-token"]
+# enable_delete = true
+
+# Example: Image upload server
+# [titan]
+# enabled = true
+# upload_dir = "./images"
+# max_upload_size = 5242880  # 5 MiB for images
+# allowed_mime_types = ["image/png", "image/jpeg", "image/gif"]
+# auth_tokens = ["image-upload-token"]
+# enable_delete = false

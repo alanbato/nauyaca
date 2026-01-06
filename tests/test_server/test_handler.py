@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from nauyaca.protocol.request import GeminiRequest
+from nauyaca.protocol.request import GeminiRequest, TitanRequest
 from nauyaca.protocol.status import StatusCode
-from nauyaca.server.handler import ErrorHandler, StaticFileHandler
+from nauyaca.server.handler import ErrorHandler, FileUploadHandler, StaticFileHandler
 
 
 class TestStaticFileHandler:
@@ -306,3 +306,234 @@ class TestErrorHandler:
 
         assert response1.status == response2.status
         assert response1.meta == response2.meta
+
+
+class TestFileUploadHandler:
+    """Test FileUploadHandler class for Titan uploads."""
+
+    def test_initialization(self, tmp_path):
+        """Test handler initialization."""
+        handler = FileUploadHandler(tmp_path)
+
+        assert handler.upload_dir == tmp_path.resolve()
+        assert handler.max_size == 10 * 1024 * 1024  # 10 MiB default
+        assert handler.enable_delete is False  # Disabled by default
+
+    def test_initialization_creates_directory(self, tmp_path):
+        """Test handler creates upload directory if it doesn't exist."""
+        upload_dir = tmp_path / "new_uploads"
+        handler = FileUploadHandler(upload_dir)
+
+        assert upload_dir.exists()
+        assert handler.upload_dir == upload_dir.resolve()
+
+    def test_initialization_with_custom_settings(self, tmp_path):
+        """Test handler initialization with custom settings."""
+        handler = FileUploadHandler(
+            tmp_path,
+            max_size=5000,
+            allowed_types=["text/plain"],
+            auth_tokens={"token123"},
+            enable_delete=True,
+        )
+
+        assert handler.max_size == 5000
+        assert handler.allowed_types == ["text/plain"]
+        assert handler.auth_tokens == {"token123"}
+        assert handler.enable_delete is True
+
+    @pytest.mark.asyncio
+    async def test_upload_basic(self, tmp_path):
+        """Test basic file upload."""
+        handler = FileUploadHandler(tmp_path)
+
+        request = TitanRequest.from_line("titan://example.com/test.gmi;size=12")
+        request.content = b"Hello World!"
+
+        response = await handler.handle_upload(request)
+
+        assert response.status == StatusCode.SUCCESS.value
+        assert (tmp_path / "test.gmi").exists()
+        assert (tmp_path / "test.gmi").read_bytes() == b"Hello World!"
+
+    @pytest.mark.asyncio
+    async def test_upload_with_subdirectory(self, tmp_path):
+        """Test upload creates parent directories."""
+        handler = FileUploadHandler(tmp_path)
+
+        request = TitanRequest.from_line("titan://example.com/docs/notes/file.gmi;size=5")
+        request.content = b"hello"
+
+        response = await handler.handle_upload(request)
+
+        assert response.status == StatusCode.SUCCESS.value
+        assert (tmp_path / "docs" / "notes" / "file.gmi").exists()
+        assert (tmp_path / "docs" / "notes" / "file.gmi").read_bytes() == b"hello"
+
+    @pytest.mark.asyncio
+    async def test_upload_size_exceeded(self, tmp_path):
+        """Test upload rejection when size exceeds limit."""
+        handler = FileUploadHandler(tmp_path, max_size=10)
+
+        request = TitanRequest.from_line("titan://example.com/large.txt;size=100")
+        request.content = b"x" * 100
+
+        response = await handler.handle_upload(request)
+
+        assert response.status == StatusCode.PERMANENT_FAILURE.value
+        assert "exceeds" in response.meta.lower()
+
+    @pytest.mark.asyncio
+    async def test_upload_mime_type_validation(self, tmp_path):
+        """Test upload rejection for disallowed MIME types."""
+        handler = FileUploadHandler(tmp_path, allowed_types=["text/gemini"])
+
+        request = TitanRequest.from_line(
+            "titan://example.com/image.png;size=5;mime=image/png"
+        )
+        request.content = b"12345"
+
+        response = await handler.handle_upload(request)
+
+        assert response.status == StatusCode.BAD_REQUEST.value
+        assert "not allowed" in response.meta.lower()
+
+    @pytest.mark.asyncio
+    async def test_upload_auth_required(self, tmp_path):
+        """Test upload rejection without valid auth token."""
+        handler = FileUploadHandler(tmp_path, auth_tokens={"valid-token"})
+
+        # No token
+        request = TitanRequest.from_line("titan://example.com/file.txt;size=5")
+        request.content = b"hello"
+
+        response = await handler.handle_upload(request)
+
+        assert response.status == StatusCode.CLIENT_CERT_REQUIRED.value
+        assert "token required" in response.meta.lower()
+
+    @pytest.mark.asyncio
+    async def test_upload_auth_invalid_token(self, tmp_path):
+        """Test upload rejection with invalid auth token."""
+        handler = FileUploadHandler(tmp_path, auth_tokens={"valid-token"})
+
+        request = TitanRequest.from_line(
+            "titan://example.com/file.txt;size=5;token=wrong-token"
+        )
+        request.content = b"hello"
+
+        response = await handler.handle_upload(request)
+
+        assert response.status == StatusCode.CLIENT_CERT_REQUIRED.value
+
+    @pytest.mark.asyncio
+    async def test_upload_auth_valid_token(self, tmp_path):
+        """Test upload success with valid auth token."""
+        handler = FileUploadHandler(tmp_path, auth_tokens={"valid-token"})
+
+        request = TitanRequest.from_line(
+            "titan://example.com/file.txt;size=5;token=valid-token"
+        )
+        request.content = b"hello"
+
+        response = await handler.handle_upload(request)
+
+        assert response.status == StatusCode.SUCCESS.value
+        assert (tmp_path / "file.txt").exists()
+
+    @pytest.mark.asyncio
+    async def test_upload_path_traversal_protection(self, tmp_path):
+        """Test path traversal attack is blocked."""
+        handler = FileUploadHandler(tmp_path)
+
+        request = TitanRequest.from_line("titan://example.com/../secret.txt;size=5")
+        request.content = b"hello"
+
+        response = await handler.handle_upload(request)
+
+        assert response.status == StatusCode.BAD_REQUEST.value
+        assert "invalid path" in response.meta.lower()
+
+    @pytest.mark.asyncio
+    async def test_delete_disabled_by_default(self, tmp_path):
+        """Test delete operations are disabled by default."""
+        # Create a file to delete
+        test_file = tmp_path / "deleteme.txt"
+        test_file.write_text("delete me")
+
+        handler = FileUploadHandler(tmp_path)
+
+        # Zero-byte upload = delete request
+        request = TitanRequest.from_line("titan://example.com/deleteme.txt;size=0")
+        request.content = b""
+
+        response = await handler.handle_upload(request)
+
+        assert response.status == StatusCode.PERMANENT_FAILURE.value
+        assert "disabled" in response.meta.lower()
+        # File should still exist
+        assert test_file.exists()
+
+    @pytest.mark.asyncio
+    async def test_delete_enabled(self, tmp_path):
+        """Test delete operations when enabled."""
+        # Create a file to delete
+        test_file = tmp_path / "deleteme.txt"
+        test_file.write_text("delete me")
+
+        handler = FileUploadHandler(tmp_path, enable_delete=True)
+
+        request = TitanRequest.from_line("titan://example.com/deleteme.txt;size=0")
+        request.content = b""
+
+        response = await handler.handle_upload(request)
+
+        assert response.status == StatusCode.SUCCESS.value
+        assert not test_file.exists()
+
+    @pytest.mark.asyncio
+    async def test_delete_nonexistent_file(self, tmp_path):
+        """Test delete for nonexistent file returns 404."""
+        handler = FileUploadHandler(tmp_path, enable_delete=True)
+
+        request = TitanRequest.from_line("titan://example.com/nosuchfile.txt;size=0")
+        request.content = b""
+
+        response = await handler.handle_upload(request)
+
+        assert response.status == StatusCode.NOT_FOUND.value
+
+    @pytest.mark.asyncio
+    async def test_delete_path_traversal_protection(self, tmp_path):
+        """Test path traversal is blocked for delete operations."""
+        # Create file outside upload dir
+        outside_file = tmp_path.parent / "outside.txt"
+        outside_file.write_text("outside")
+
+        handler = FileUploadHandler(tmp_path, enable_delete=True)
+
+        request = TitanRequest.from_line("titan://example.com/../outside.txt;size=0")
+        request.content = b""
+
+        response = await handler.handle_upload(request)
+
+        assert response.status == StatusCode.BAD_REQUEST.value
+        # File should still exist
+        assert outside_file.exists()
+        outside_file.unlink()  # Cleanup
+
+    @pytest.mark.asyncio
+    async def test_upload_overwrites_existing(self, tmp_path):
+        """Test upload overwrites existing file."""
+        existing_file = tmp_path / "file.txt"
+        existing_file.write_text("old content")
+
+        handler = FileUploadHandler(tmp_path)
+
+        request = TitanRequest.from_line("titan://example.com/file.txt;size=11")
+        request.content = b"new content"
+
+        response = await handler.handle_upload(request)
+
+        assert response.status == StatusCode.SUCCESS.value
+        assert existing_file.read_bytes() == b"new content"

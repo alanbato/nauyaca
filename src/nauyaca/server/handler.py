@@ -1,11 +1,12 @@
 """Request handlers for Gemini server.
 
 This module provides request handler classes for processing Gemini requests
-and generating responses.
+and generating responses, including Titan upload handlers.
 """
 
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..content.gemtext import generate_directory_listing
 from ..protocol.constants import (
@@ -16,6 +17,9 @@ from ..protocol.constants import (
 from ..protocol.request import GeminiRequest
 from ..protocol.response import GeminiResponse
 from ..protocol.status import StatusCode
+
+if TYPE_CHECKING:
+    from ..protocol.request import TitanRequest
 
 
 class RequestHandler(ABC):
@@ -246,3 +250,211 @@ class ErrorHandler(RequestHandler):
             A GeminiResponse with the configured error.
         """
         return GeminiResponse(status=self.status.value, meta=self.message)
+
+
+class UploadHandler(ABC):
+    """Abstract base class for Titan upload handlers.
+
+    Implementations can save uploads to filesystem, database, cloud storage, etc.
+    All upload handlers should inherit from this class and implement
+    the handle_upload() method.
+    """
+
+    @abstractmethod
+    async def handle_upload(self, request: "TitanRequest") -> GeminiResponse:
+        """Handle a Titan upload request.
+
+        Args:
+            request: The Titan upload request with content.
+
+        Returns:
+            A GeminiResponse indicating success or failure.
+        """
+        pass
+
+
+class FileUploadHandler(UploadHandler):
+    """Upload handler that saves files to disk.
+
+    This handler saves uploaded content to a specified directory with
+    path traversal protection, size limits, and optional authentication.
+
+    Attributes:
+        upload_dir: Directory for storing uploads.
+        max_size: Maximum upload size in bytes.
+        allowed_types: List of allowed MIME types (None = all allowed).
+        auth_tokens: Set of valid authentication tokens.
+        enable_delete: Whether to allow zero-byte delete requests.
+
+    Examples:
+        >>> handler = FileUploadHandler(
+        ...     upload_dir=Path("/var/gemini/uploads"),
+        ...     max_size=10 * 1024 * 1024,  # 10 MiB
+        ...     auth_tokens={"secret123"},
+        ... )
+    """
+
+    def __init__(
+        self,
+        upload_dir: Path | str,
+        max_size: int = 10 * 1024 * 1024,  # 10 MiB default
+        allowed_types: list[str] | None = None,
+        auth_tokens: set[str] | None = None,
+        enable_delete: bool = False,  # Disabled by default for safety
+    ) -> None:
+        """Initialize the file upload handler.
+
+        Args:
+            upload_dir: Directory for storing uploads.
+            max_size: Maximum upload size in bytes (default: 10 MiB).
+            allowed_types: List of allowed MIME types (None = all allowed).
+            auth_tokens: Set of valid authentication tokens (None = no auth).
+            enable_delete: Whether to allow zero-byte delete requests
+                (default: False for safety).
+        """
+        self.upload_dir = Path(upload_dir).resolve()
+        self.max_size = max_size
+        self.allowed_types = allowed_types
+        self.auth_tokens = auth_tokens or set()
+        self.enable_delete = enable_delete
+
+        # Create upload directory if it doesn't exist
+        if not self.upload_dir.exists():
+            self.upload_dir.mkdir(parents=True, exist_ok=True)
+
+    async def handle_upload(self, request: "TitanRequest") -> GeminiResponse:
+        """Handle a Titan upload request.
+
+        Validates authentication, size, MIME type, and path before saving.
+
+        Args:
+            request: The Titan upload request with content.
+
+        Returns:
+            A GeminiResponse indicating success or failure.
+        """
+        # Import here to avoid circular imports
+        from ..protocol.request import TitanRequest
+
+        if not isinstance(request, TitanRequest):
+            return GeminiResponse(
+                status=StatusCode.BAD_REQUEST.value,
+                meta="Invalid request type",
+            )
+
+        # 1. Validate authentication (if tokens configured)
+        if self.auth_tokens:
+            if not request.token or request.token not in self.auth_tokens:
+                return GeminiResponse(
+                    status=StatusCode.CLIENT_CERT_REQUIRED.value,
+                    meta="Valid authentication token required",
+                )
+
+        # 2. Validate content size
+        if request.size > self.max_size:
+            return GeminiResponse(
+                status=StatusCode.PERMANENT_FAILURE.value,
+                meta=f"Upload exceeds maximum size ({self.max_size} bytes)",
+            )
+
+        # 3. Validate MIME type
+        if self.allowed_types and request.mime_type not in self.allowed_types:
+            return GeminiResponse(
+                status=StatusCode.BAD_REQUEST.value,
+                meta=f"MIME type '{request.mime_type}' not allowed",
+            )
+
+        # 4. Handle zero-byte delete request
+        if request.is_delete():
+            return await self._handle_delete(request.path)
+
+        # 5. Validate path (path traversal protection)
+        target = (self.upload_dir / request.path.lstrip("/")).resolve()
+        if not self._is_safe_path(target):
+            return GeminiResponse(
+                status=StatusCode.BAD_REQUEST.value,
+                meta="Invalid path",
+            )
+
+        # 6. Save file
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(request.content)
+
+            return GeminiResponse(
+                status=StatusCode.SUCCESS.value,
+                meta=MIME_TYPE_GEMTEXT,
+                body=f"# Upload Successful\n\n=> {request.path} View uploaded content\n",
+            )
+        except PermissionError:
+            return GeminiResponse(
+                status=StatusCode.TEMPORARY_FAILURE.value,
+                meta="Permission denied",
+            )
+        except Exception as e:
+            return GeminiResponse(
+                status=StatusCode.TEMPORARY_FAILURE.value,
+                meta=f"Upload failed: {str(e)}",
+            )
+
+    async def _handle_delete(self, path: str) -> GeminiResponse:
+        """Handle a zero-byte delete request.
+
+        Args:
+            path: The path to delete.
+
+        Returns:
+            A GeminiResponse indicating success or failure.
+        """
+        if not self.enable_delete:
+            return GeminiResponse(
+                status=StatusCode.PERMANENT_FAILURE.value,
+                meta="Delete operations are disabled",
+            )
+
+        target = (self.upload_dir / path.lstrip("/")).resolve()
+
+        if not self._is_safe_path(target):
+            return GeminiResponse(
+                status=StatusCode.BAD_REQUEST.value,
+                meta="Invalid path",
+            )
+
+        if not target.exists():
+            return GeminiResponse(
+                status=StatusCode.NOT_FOUND.value,
+                meta="Resource not found",
+            )
+
+        try:
+            target.unlink()
+            return GeminiResponse(
+                status=StatusCode.SUCCESS.value,
+                meta=MIME_TYPE_GEMTEXT,
+                body=f"# Deleted\n\nResource '{path}' has been removed.\n",
+            )
+        except PermissionError:
+            return GeminiResponse(
+                status=StatusCode.TEMPORARY_FAILURE.value,
+                meta="Permission denied",
+            )
+        except Exception as e:
+            return GeminiResponse(
+                status=StatusCode.TEMPORARY_FAILURE.value,
+                meta=f"Delete failed: {str(e)}",
+            )
+
+    def _is_safe_path(self, file_path: Path) -> bool:
+        """Check if a file path is within the upload directory.
+
+        Args:
+            file_path: The resolved file path to check.
+
+        Returns:
+            True if the path is safe, False otherwise.
+        """
+        try:
+            file_path.relative_to(self.upload_dir)
+            return True
+        except ValueError:
+            return False
