@@ -18,7 +18,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.5.14 /uv /usr/local/bin/uv
 WORKDIR /app
 
 # Copy project files (include lock file for reproducibility if present)
-COPY pyproject.toml uv.lock* ./
+COPY pyproject.toml uv.lock* README.md ./
 COPY src/ src/
 
 # Build wheel

@@ -38,8 +38,8 @@ services:
       # NAUYACA_CERTFILE: "/certs/cert.pem"
       # NAUYACA_KEYFILE: "/certs/key.pem"
 
-    # Override default command if not using config file
-    # command: ["/capsule"]
+    # Use CLI args instead of config file for simpler testing
+    command: ["/capsule"]
 
     # Resource limits (optional)
     deploy:
@@ -56,7 +56,7 @@ services:
       - no-new-privileges:true
     read_only: true
     tmpfs:
-      - /tmp:size=10M,mode=0755
+      - /tmp:size=10M,mode=1777
 
 # Example with custom network
 # networks:
