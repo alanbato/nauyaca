@@ -76,6 +76,56 @@ async def main():
 asyncio.run(main())
 ```
 
+## Advanced Features
+
+### Location-Based Routing
+
+Nauyaca supports flexible routing with multiple handlers per server. Configure different URL paths to use different handlers (static files, proxy, etc.):
+
+```toml
+# Proxy API requests to backend server
+[[locations]]
+prefix = "/api/"
+handler = "proxy"
+upstream = "gemini://backend.example.com:1965"
+strip_prefix = true  # /api/resource → /resource on backend
+timeout = 30
+
+# Serve static content for everything else
+[[locations]]
+prefix = "/"
+handler = "static"
+document_root = "./capsule"
+```
+
+### Reverse Proxy
+
+Use Nauyaca as a reverse proxy to aggregate multiple Gemini capsules:
+
+```toml
+# Forward blog requests to blog server
+[[locations]]
+prefix = "/blog/"
+handler = "proxy"
+upstream = "gemini://blog.example.com"
+strip_prefix = true
+
+# Forward wiki requests to wiki server
+[[locations]]
+prefix = "/wiki/"
+handler = "proxy"
+upstream = "gemini://wiki.example.com"
+strip_prefix = true
+
+# Serve homepage from local files
+[[locations]]
+prefix = "/"
+handler = "static"
+document_root = "./homepage"
+```
+
+See `config.example.toml` for more configuration examples.
+
 ## Documentation
 
 **[nauyaca.readthedocs.io](https://nauyaca.readthedocs.io)**

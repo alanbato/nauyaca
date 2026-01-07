@@ -99,14 +99,6 @@ async def start_server(
         max_file_size if max_file_size is not None else config.max_file_size
     )
 
-    # Create router and static file handler
-    router = Router()
-    static_handler = StaticFileHandler(
-        config.document_root,
-        enable_directory_listing=enable_directory_listing,
-        max_file_size=effective_max_file_size,
-    )
-
     # Set up default 404 handler
     def default_404_handler(request: object) -> GeminiResponse:
         from ..protocol.request import GeminiRequest
@@ -121,13 +113,32 @@ async def start_server(
             body=error_404(path),
         )
 
-    router.set_default_handler(default_404_handler)
+    # Create router - use location-based routing if configured, else simple static
+    location_router = config.get_location_router(enable_directory_listing)
 
-    # Add route for all paths - static file handler
-    # This catches everything not explicitly routed
-    from .router import RouteType
+    if location_router:
+        # Location-based routing configured
+        router = location_router
+        router.set_default_handler(default_404_handler)
+        # locations is guaranteed non-empty when location_router exists
+        assert config.locations is not None
+        logger.info(
+            "location_routing_enabled",
+            location_count=len(config.locations),
+            prefixes=[loc.prefix for loc in config.locations],
+        )
+    else:
+        # Fallback: simple static file handler for document_root
+        from .router import RouteType
 
-    router.add_route("/", static_handler.handle, route_type=RouteType.PREFIX)
+        router = Router()
+        static_handler = StaticFileHandler(
+            config.document_root,
+            enable_directory_listing=enable_directory_listing,
+            max_file_size=effective_max_file_size,
+        )
+        router.set_default_handler(default_404_handler)
+        router.add_route("/", static_handler.handle, route_type=RouteType.PREFIX)
 
     # Determine if we need to request client certificates
     # PyOpenSSL is used if:

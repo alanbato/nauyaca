@@ -168,3 +168,68 @@ hash_ips = true
 # allowed_mime_types = ["image/png", "image/jpeg", "image/gif"]
 # auth_tokens = ["image-upload-token"]
 # enable_delete = false
+
+# =============================================================================
+# LOCATION-BASED ROUTING
+# =============================================================================
+# Locations allow routing different URL paths to different handlers.
+# Each [[locations]] block defines a prefix and its handler configuration.
+# Locations are matched in order - first matching prefix wins.
+#
+# Available handler types:
+#   - "static": Serve static files from a directory
+#   - "proxy": Forward requests to an upstream Gemini server
+#
+# Note: When using [[locations]], the [server].document_root is still required
+# but only used for validation. Each location's handler provides its own content.
+
+# Example: Mixed static and proxy configuration
+# [[locations]]
+# prefix = "/api/"
+# handler = "proxy"
+# upstream = "gemini://backend.example.com:1965"
+# strip_prefix = true   # /api/resource -> /resource on backend
+# timeout = 30          # Upstream request timeout in seconds
+#
+# [[locations]]
+# prefix = "/mirror/"
+# handler = "proxy"
+# upstream = "gemini://other-capsule.net:1965"
+# strip_prefix = false  # Keep original path
+#
+# [[locations]]
+# prefix = "/static/"
+# handler = "static"
+# document_root = "./public"
+# enable_directory_listing = true
+#
+# [[locations]]
+# prefix = "/"
+# handler = "static"
+# document_root = "./capsule"
+# enable_directory_listing = false
+
+# Example: Simple reverse proxy
+# [[locations]]
+# prefix = "/"
+# handler = "proxy"
+# upstream = "gemini://internal-server:1965"
+# strip_prefix = false
+
+# Example: Aggregating multiple capsules
+# [[locations]]
+# prefix = "/blog/"
+# handler = "proxy"
+# upstream = "gemini://blog.example.com"
+# strip_prefix = true
+#
+# [[locations]]
+# prefix = "/wiki/"
+# handler = "proxy"
+# upstream = "gemini://wiki.example.com"
+# strip_prefix = true
+#
+# [[locations]]
+# prefix = "/"
+# handler = "static"
+# document_root = "./homepage"

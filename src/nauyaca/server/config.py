@@ -17,6 +17,9 @@ from ..protocol.constants import DEFAULT_MAX_FILE_SIZE, DEFAULT_PORT
 
 if TYPE_CHECKING:
     from .handler import FileUploadHandler
+    from .router import Router
+
+from .location import HandlerType, LocationConfig
 from .middleware import (
     AccessControlConfig,
     CertificateAuthConfig,
@@ -84,6 +87,10 @@ class ServerConfig:
     titan_allowed_mime_types: list[str] | None = None  # None = all allowed
     titan_auth_tokens: list[str] | None = None  # None = no auth required
     titan_enable_delete: bool = False  # Delete disabled by default for safety
+
+    # Location-based routing configuration
+    # If set, enables multi-handler routing (proxy, static, etc.)
+    locations: list[LocationConfig] | None = None
 
     def __post_init__(self) -> None:
         """Validate and normalize configuration after initialization."""
@@ -217,6 +224,66 @@ class ServerConfig:
             enable_delete=self.titan_enable_delete,
         )
 
+    def get_location_router(
+        self, enable_directory_listing: bool = False
+    ) -> "Router | None":
+        """Build a router from location configurations.
+
+        Creates handlers for each location and registers them with a Router.
+        If no locations are configured, returns None.
+
+        Args:
+            enable_directory_listing: Default directory listing setting for
+                static handlers that don't specify it.
+
+        Returns:
+            Router instance configured with location handlers, or None if
+            no locations are configured.
+
+        Examples:
+            >>> config = ServerConfig.from_toml(Path("config.toml"))
+            >>> router = config.get_location_router()
+            >>> if router:
+            ...     response = router.route(request)
+        """
+        if not self.locations:
+            return None
+
+        from .handler import RequestHandler, StaticFileHandler
+        from .proxy import ProxyHandler
+        from .router import Router, RouteType
+
+        def create_handler(loc: LocationConfig) -> RequestHandler:
+            """Create handler instance from location config."""
+            if loc.handler_type == HandlerType.STATIC:
+                # document_root is validated in LocationConfig.__post_init__
+                assert loc.document_root is not None
+                return StaticFileHandler(
+                    document_root=loc.document_root,
+                    enable_directory_listing=loc.enable_directory_listing
+                    or enable_directory_listing,
+                    default_indices=loc.default_indices,
+                    max_file_size=loc.max_file_size or self.max_file_size,
+                )
+            elif loc.handler_type == HandlerType.PROXY:
+                # upstream is validated in LocationConfig.__post_init__
+                assert loc.upstream is not None
+                return ProxyHandler(
+                    upstream=loc.upstream,
+                    prefix=loc.prefix,
+                    strip_prefix=loc.strip_prefix,
+                    timeout=loc.timeout,
+                )
+            else:
+                raise ValueError(f"Unknown handler type: {loc.handler_type}")
+
+        router = Router()
+        for location in self.locations:
+            handler = create_handler(location)
+            router.add_route(location.prefix, handler.handle, route_type=RouteType.PREFIX)
+
+        return router
+
     @classmethod
     def from_toml(cls, path: Path) -> "ServerConfig":
         """Load configuration from TOML file.
@@ -253,6 +320,12 @@ class ServerConfig:
         logging_config = data.get("logging", {})
         titan = data.get("titan", {})
 
+        # Parse locations if present
+        locations_data = data.get("locations", [])
+        locations: list[LocationConfig] | None = None
+        if locations_data:
+            locations = [LocationConfig.from_dict(loc) for loc in locations_data]
+
         # Build config with proper type conversions
         return cls(
             # Server settings
@@ -284,4 +357,6 @@ class ServerConfig:
             titan_allowed_mime_types=titan.get("allowed_mime_types"),
             titan_auth_tokens=titan.get("auth_tokens"),
             titan_enable_delete=titan.get("enable_delete", False),
+            # Location-based routing
+            locations=locations,
         )
