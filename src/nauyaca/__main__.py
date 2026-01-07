@@ -467,6 +467,9 @@ def serve(
 
     async def _serve() -> None:
         try:
+            # Load environment variable overrides (highest priority)
+            env_overrides = ServerConfig.from_env()
+
             # Load configuration from file if provided
             if config_file:
                 config = ServerConfig.from_toml(config_file)
@@ -483,11 +486,12 @@ def serve(
                 if key is not None:
                     config.keyfile = key
             else:
-                # No config file - require document root
-                if root is None:
+                # No config file - check for document root from CLI or env
+                effective_root = root or env_overrides.get("document_root")
+                if effective_root is None:
                     error_console.print(
                         "[red]Error:[/] Document root is required "
-                        "(either as argument or via --config)"
+                        "(via argument, --config, or NAUYACA_DOCUMENT_ROOT env var)"
                     )
                     raise typer.Exit(code=1)
 
@@ -495,10 +499,14 @@ def serve(
                 config = ServerConfig(
                     host=host or "localhost",
                     port=port or DEFAULT_PORT,
-                    document_root=root,
+                    document_root=effective_root,
                     certfile=cert,
                     keyfile=key,
                 )
+
+            # Apply environment variable overrides (ENV > CLI > TOML)
+            for env_key, env_value in env_overrides.items():
+                setattr(config, env_key, env_value)
 
             # Build certificate auth config from CLI flag or config file
             cert_auth_config = config.get_certificate_auth_config()

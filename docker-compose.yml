@@ -1,0 +1,64 @@
+# Nauyaca Gemini Server - Docker Compose Example
+#
+# Quick start:
+#   1. Create your capsule directory with content
+#   2. Generate TLS certificates (or let server auto-generate for testing)
+#   3. Run: docker compose up
+#
+# For production, provide your own certificates in ./certs/
+
+services:
+  nauyaca:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nauyaca
+    restart: unless-stopped
+
+    ports:
+      - "1965:1965"
+
+    volumes:
+      # Your Gemini content (required)
+      - ./capsule:/capsule:ro
+
+      # TLS certificates (optional - auto-generated if not provided)
+      - ./certs:/certs:ro
+
+      # Configuration file (optional - can use env vars instead)
+      - ./config.toml:/config/config.toml:ro
+
+    environment:
+      # Core settings (override config.toml)
+      NAUYACA_HOST: "0.0.0.0"
+      NAUYACA_PORT: "1965"
+      NAUYACA_DOCUMENT_ROOT: "/capsule"
+
+      # TLS certificates (uncomment if using custom certs)
+      # NAUYACA_CERTFILE: "/certs/cert.pem"
+      # NAUYACA_KEYFILE: "/certs/key.pem"
+
+    # Override default command if not using config file
+    # command: ["/capsule"]
+
+    # Resource limits (optional)
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+        reservations:
+          cpus: "0.1"
+          memory: 32M
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=10M,mode=0755
+
+# Example with custom network
+# networks:
+#   gemini:
+#     driver: bridge

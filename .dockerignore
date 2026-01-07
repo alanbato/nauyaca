@@ -1,0 +1,68 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Type checking
+.mypy_cache/
+.ruff_cache/
+
+# Documentation
+docs/_build/
+site/
+
+# Project files not needed in container
+tests/
+sample/
+.project_docs/
+*.md
+!README.md
+Makefile
+mkdocs.yml
+.pre-commit-config.yaml
+
+# Local config (use volumes instead)
+config.toml
+config.*.toml
+*.pem
+*.key
+capsule/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore

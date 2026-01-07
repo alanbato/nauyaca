@@ -285,6 +285,64 @@ class ServerConfig:
         return router
 
     @classmethod
+    def from_env(cls) -> dict[str, Any]:
+        """Extract configuration from environment variables.
+
+        Reads NAUYACA_* environment variables and returns a dict suitable
+        for overriding ServerConfig fields. Only returns values that are
+        actually set in the environment.
+
+        Supported variables:
+            NAUYACA_HOST: Server host address
+            NAUYACA_PORT: Server port (integer)
+            NAUYACA_DOCUMENT_ROOT: Path to document root
+            NAUYACA_CERTFILE: Path to TLS certificate
+            NAUYACA_KEYFILE: Path to TLS private key
+
+        Returns:
+            Dict with keys matching ServerConfig fields.
+
+        Raises:
+            ValueError: If NAUYACA_PORT is not a valid integer.
+
+        Examples:
+            >>> import os
+            >>> os.environ['NAUYACA_HOST'] = '0.0.0.0'
+            >>> env_config = ServerConfig.from_env()
+            >>> env_config.get('host')
+            '0.0.0.0'
+        """
+        import os
+
+        config: dict[str, Any] = {}
+
+        # String fields
+        if host := os.getenv("NAUYACA_HOST"):
+            config["host"] = host
+
+        # Integer fields
+        port_str = os.getenv("NAUYACA_PORT")
+        if port_str is not None:
+            try:
+                config["port"] = int(port_str)
+            except ValueError as e:
+                raise ValueError(
+                    f"Invalid NAUYACA_PORT: {port_str!r} (must be an integer 1-65535)"
+                ) from e
+
+        # Path fields
+        if document_root := os.getenv("NAUYACA_DOCUMENT_ROOT"):
+            config["document_root"] = document_root
+
+        if certfile := os.getenv("NAUYACA_CERTFILE"):
+            config["certfile"] = certfile
+
+        if keyfile := os.getenv("NAUYACA_KEYFILE"):
+            config["keyfile"] = keyfile
+
+        return config
+
+    @classmethod
     def from_toml(cls, path: Path) -> "ServerConfig":
         """Load configuration from TOML file.
 

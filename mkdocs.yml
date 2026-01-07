@@ -107,6 +107,7 @@ nav:
       - Securing Your Server: tutorials/securing-your-server.md
   - How-to Guides:
       - how-to/index.md
+      - Deployment: how-to/deployment.md
       - Configure Server: how-to/configure-server.md
       - Manage Certificates: how-to/manage-certificates.md
       - Setup TOFU: how-to/setup-tofu.md
