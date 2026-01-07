@@ -2,10 +2,13 @@
 #
 # Quick start:
 #   1. Create your capsule directory with content
-#   2. Generate TLS certificates (or let server auto-generate for testing)
+#   2. Copy config.example.toml to config.toml and customize
 #   3. Run: docker compose up
 #
 # For production, provide your own certificates in ./certs/
+#
+# Note: The capsule directory must be world-readable (chmod -R o+rX capsule)
+# for the non-root container user to access it.
 
 services:
   nauyaca:
@@ -38,10 +41,10 @@ services:
       # NAUYACA_CERTFILE: "/certs/cert.pem"
       # NAUYACA_KEYFILE: "/certs/key.pem"
 
-    # Use CLI args instead of config file for simpler testing
-    command: ["/capsule"]
+    # Override default command if not using config file
+    # command: ["/capsule"]
 
-    # Resource limits (optional)
+    # Resource limits
     deploy:
       resources:
         limits:
@@ -51,7 +54,9 @@ services:
           cpus: "0.1"
           memory: 32M
 
-    # Security options
+    # Security hardening
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
     read_only: true
